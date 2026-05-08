@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "transactions" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ;
+
+-- AlterTable
+ALTER TABLE "usage_logs" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ;
+
+-- AlterTable
+ALTER TABLE "users" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ;
