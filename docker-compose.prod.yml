@@ -1,0 +1,125 @@
+# Production docker-compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # ─── PostgreSQL with pgvector ───
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ─── Redis (uncomment when needed) ───
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: always
+  #   command: redis-server --requirepass ${REDIS_PASSWORD}
+  #   volumes:
+  #     - redisdata:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - internal
+
+  # ─── API ───
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PORT: 3000
+      HOST: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      DASHBOARD_URL: ${DASHBOARD_URL}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+    ports:
+      - "3000:3000"
+    networks:
+      - internal
+      - web
+
+  # ─── Dashboard ───
+  # dashboard:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/dashboard/Dockerfile
+  #   restart: always
+  #   depends_on:
+  #     - api
+  #   environment:
+  #     NODE_ENV: production
+  #     NEXT_PUBLIC_API_URL: ${API_URL:-http://api:3000}
+  #   ports:
+  #     - "4200:4200"
+  #   networks:
+  #     - internal
+  #     - web
+
+  # ─── Landing ───
+  # landing:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/landing/Dockerfile
+  #   restart: always
+  #   environment:
+  #     NODE_ENV: production
+  #     NEXT_PUBLIC_API_URL: ${API_URL:-http://api:3000}
+  #     NEXT_PUBLIC_DASHBOARD_URL: ${DASHBOARD_URL:-http://dashboard:4200}
+  #   ports:
+  #     - "3001:3001"
+  #   networks:
+  #     - web
+
+  # ─── Migrate (run once) ───
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    command: ["npx", "prisma", "migrate", "deploy"]
+    restart: "no"
+    networks:
+      - internal
+
+volumes:
+  pgdata:
+  # redisdata:
+
+networks:
+  internal:
+    driver: bridge
+  web:
+    driver: bridge
