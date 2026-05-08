@@ -1,0 +1,1226 @@
+openapi: 3.1.0
+info:
+  title: Performa AI API
+  description: Unified AI API platform with pay-per-use billing
+  version: 1.0.0
+  contact:
+    name: Performa AI
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+security: []
+
+tags:
+  - name: Auth
+    description: User authentication and API key management
+  - name: Chat
+    description: AI chat completions (OpenAI-compatible)
+  - name: Models
+    description: Available AI models and pricing
+  - name: Billing
+    description: Balance, transactions, and checkout
+  - name: Usage
+    description: API usage logs
+  - name: Webhooks
+    description: Stripe webhook handler
+  - name: Health
+    description: Service health check
+  - name: Conversations
+    description: Chat conversation history
+  - name: Knowledge
+    description: RAG knowledge base management
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+        "401":
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      operationId: getProfile
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+
+  /auth/keys/regenerate:
+    post:
+      tags: [Auth]
+      summary: Regenerate API key
+      operationId: regenerateApiKey
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: New API key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apiKey:
+                    type: string
+                    example: sk_live_abc123def456
+        "401":
+          description: Unauthorized
+
+  /chat/completions:
+    post:
+      tags: [Chat]
+      summary: Create a chat completion
+      description: OpenAI-compatible chat completions endpoint. Requires an API key (sk_live_*).
+      operationId: createChatCompletion
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionRequest"
+      responses:
+        "200":
+          description: Chat completion response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionResponse"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionError"
+        "401":
+          description: Invalid or missing API key
+        "402":
+          description: Insufficient balance
+
+  /models:
+    get:
+      tags: [Models]
+      summary: List available models
+      operationId: listModels
+      responses:
+        "200":
+          description: List of available models with pricing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelList"
+
+  /billing/balance:
+    get:
+      tags: [Billing]
+      summary: Get current balance
+      operationId: getBalance
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: string
+                    example: "10.50"
+                    description: Balance in USD as a decimal string
+        "401":
+          description: Unauthorized
+
+  /billing/transactions:
+    get:
+      tags: [Billing]
+      summary: List transactions
+      operationId: getTransactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated transaction list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionList"
+        "401":
+          description: Unauthorized
+
+  /billing/checkout:
+    post:
+      tags: [Billing]
+      summary: Create a Stripe checkout session
+      operationId: createCheckout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  minimum: 5
+                  default: 5
+                  description: Top-up amount in USD (minimum $5)
+      responses:
+        "201":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    description: Stripe Checkout URL to redirect the user to
+        "400":
+          description: Invalid amount or Stripe not configured
+        "401":
+          description: Unauthorized
+
+  /usage:
+    get:
+      tags: [Usage]
+      summary: Get API usage logs
+      operationId: getUsage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: model
+          in: query
+          schema:
+            type: string
+          description: Filter by model ID
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter usage from this date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter usage until this date
+      responses:
+        "200":
+          description: Paginated usage logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageList"
+        "401":
+          description: Unauthorized
+
+  /webhooks/stripe:
+    get:
+      tags: [Webhooks]
+      summary: Webhook health check
+      operationId: webhookHealthCheck
+      responses:
+        "200":
+          description: Webhook status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  configured:
+                    type: boolean
+    post:
+      tags: [Webhooks]
+      summary: Stripe webhook endpoint
+      description: Receives Stripe events. Requires stripe-signature header for verification.
+      operationId: handleStripeWebhook
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Event received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        "400":
+          description: Invalid signature or missing configuration
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  database:
+                    type: string
+                    enum: [connected, disconnected]
+
+  /conversations:
+    get:
+      tags: [Conversations]
+      summary: List conversations
+      operationId: listConversations
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated conversation list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationList"
+        "401":
+          description: Unauthorized
+
+  /conversations/{id}:
+    get:
+      tags: [Conversations]
+      summary: Get a conversation with messages
+      operationId: getConversation
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationDetail"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Conversation not found
+    delete:
+      tags: [Conversations]
+      summary: Delete a conversation
+      operationId: deleteConversation
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Conversation deleted
+        "401":
+          description: Unauthorized
+        "404":
+          description: Conversation not found
+
+  /v1/knowledge/bases:
+    post:
+      tags: [Knowledge]
+      summary: Create a knowledge base
+      operationId: createKnowledgeBase
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeBaseRequest"
+      responses:
+        "201":
+          description: Knowledge base created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+    get:
+      tags: [Knowledge]
+      summary: List knowledge bases
+      operationId: listKnowledgeBases
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: List of knowledge bases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeBase"
+        "401":
+          description: Unauthorized
+
+  /v1/knowledge/bases/{id}:
+    get:
+      tags: [Knowledge]
+      summary: Get a knowledge base
+      operationId: getKnowledgeBase
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge base details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Knowledge base not found
+    put:
+      tags: [Knowledge]
+      summary: Update a knowledge base
+      operationId: updateKnowledgeBase
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKnowledgeBaseRequest"
+      responses:
+        "200":
+          description: Knowledge base updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+        "404":
+          description: Knowledge base not found
+    delete:
+      tags: [Knowledge]
+      summary: Delete a knowledge base
+      operationId: deleteKnowledgeBase
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Knowledge base deleted
+        "401":
+          description: Unauthorized
+        "404":
+          description: Knowledge base not found
+
+  /v1/knowledge/bases/{id}/upload:
+    post:
+      tags: [Knowledge]
+      summary: Upload a markdown file to a knowledge base
+      description: Uploads a .md file, chunks it, generates embeddings, and stores in the knowledge base. Rate limited to 5 requests per minute.
+      operationId: uploadMarkdown
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Markdown file (.md, max 10MB)
+      responses:
+        "200":
+          description: File processed and chunks created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chunksCreated:
+                    type: integer
+                  s3Key:
+                    type: string
+        "400":
+          description: Invalid file (not .md or exceeds size limit)
+        "401":
+          description: Unauthorized
+        "429":
+          description: Rate limit exceeded
+
+  /v1/knowledge/bases/{id}/chunks:
+    post:
+      tags: [Knowledge]
+      summary: Add text chunks to a knowledge base
+      description: Manually add text chunks with optional metadata. Rate limited to 10 requests per minute.
+      operationId: addChunks
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddChunksRequest"
+      responses:
+        "201":
+          description: Chunks added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chunksCreated:
+                    type: integer
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+        "429":
+          description: Rate limit exceeded
+    get:
+      tags: [Knowledge]
+      summary: List chunks in a knowledge base
+      operationId: listChunks
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of chunks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChunkList"
+        "401":
+          description: Unauthorized
+
+  /v1/knowledge/bases/{id}/chunks/{chunkId}:
+    delete:
+      tags: [Knowledge]
+      summary: Delete a chunk
+      operationId: deleteChunk
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: chunkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Chunk deleted
+        "401":
+          description: Unauthorized
+        "404":
+          description: Chunk not found
+
+  /v1/knowledge/search:
+    post:
+      tags: [Knowledge]
+      summary: Search knowledge base chunks by semantic similarity
+      operationId: searchKnowledgeChunks
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchChunksRequest"
+      responses:
+        "200":
+          description: Search results ranked by similarity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from /auth/login
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "API key with Bearer prefix: `Bearer sk_live_*`"
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          example: mypassword123
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 1
+          example: mypassword123
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        apiKey:
+          type: string
+          description: API key for chat completions (only on register)
+          example: sk_live_abc123def456
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        balance:
+          type: string
+          description: Current balance in USD
+        apiKey:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: Model ID from /models endpoint
+          example: llama-3.3-70b
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          description: Sampling temperature
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 128000
+          description: Maximum tokens to generate
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+          minLength: 1
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: chat.completion
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: "#/components/schemas/ChatMessage"
+              finish_reason:
+                type: string
+                enum: [stop, length]
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+        cost:
+          type: object
+          properties:
+            input:
+              type: string
+            output:
+              type: string
+            total:
+              type: string
+
+    ChatCompletionError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+              example: invalid_request_error
+            details:
+              type: object
+
+    ModelList:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Model"
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+          enum:
+            - gemma-3n-e4b
+            - lfm2-24b
+            - gpt-oss-20b
+            - qwen-3.5-9b
+            - llama-3-8b-lite
+            - rnj-1
+            - qwen-2.5-7b-turbo
+          example: gpt-oss-20b
+        provider:
+          type: string
+          example: together
+        pricing:
+          type: object
+          properties:
+            input:
+              type: number
+              description: Price per input token (USD, with markup)
+              example: 0.0000016
+            output:
+              type: number
+              description: Price per output token (USD, with markup)
+              example: 0.0000016
+            currency:
+              type: string
+              example: USD
+            unit:
+              type: string
+              example: per token
+        max_tokens:
+          type: integer
+          example: 128000
+
+    TransactionList:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [topup, usage, refund]
+        amount:
+          type: string
+          description: Amount in USD as decimal string
+        status:
+          type: string
+          enum: [success, pending, failed]
+        reference:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    UsageList:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageLog"
+        total:
+          type: integer
+
+    UsageLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        model:
+          type: string
+        inputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        cost:
+          type: string
+          description: Cost in USD as decimal string
+        latencyMs:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    ValidationError:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+
+    ConversationList:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          nullable: true
+        model:
+          type: string
+        messageCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConversationDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          nullable: true
+        model:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationMessage"
+
+    ConversationMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    KnowledgeBase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateKnowledgeBaseRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+
+    UpdateKnowledgeBaseRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+        active:
+          type: boolean
+
+    AddChunksRequest:
+      type: object
+      required: [chunks]
+      properties:
+        chunks:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            required: [content]
+            properties:
+              content:
+                type: string
+                minLength: 1
+                maxLength: 100000
+              metadata:
+                type: object
+                additionalProperties: true
+
+    SearchChunksRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        knowledgeBaseId:
+          type: string
+          format: uuid
+          description: Optional filter to search within a specific knowledge base
+        topK:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 5
+
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        metadata:
+          type: object
+          nullable: true
+        similarity:
+          type: number
+          description: Cosine similarity score (0-1)
+        knowledgeBaseId:
+          type: string
+          format: uuid
+
+    ChunkList:
+      type: object
+      properties:
+        chunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeChunk"
+        total:
+          type: integer
+
+    KnowledgeChunk:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        metadata:
+          type: object
+          nullable: true
+        tokenCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time

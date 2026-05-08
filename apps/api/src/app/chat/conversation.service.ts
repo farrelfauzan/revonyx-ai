@@ -1,0 +1,202 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { ProviderRouter } from "../providers/provider-router";
+import { ModelRegistryService } from "../config/model-registry.service";
+
+interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+@Injectable()
+export class ConversationService {
+  private readonly logger = new Logger(ConversationService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly providerRouter: ProviderRouter,
+    private readonly registry: ModelRegistryService,
+  ) {}
+
+  /**
+   * Creates a new conversation or returns an existing one.
+   * If conversationId is provided, validates ownership and returns it.
+   * Otherwise creates a new conversation.
+   */
+  async getOrCreateConversation(
+    userId: string,
+    model: string,
+    conversationId?: string,
+  ): Promise<string> {
+    if (conversationId) {
+      const existing = await this.prisma.conversation.findFirst({
+        where: { id: conversationId, userId },
+      });
+
+      if (existing) {
+        return existing.id;
+      }
+
+      this.logger.warn(
+        `Conversation ${conversationId} not found for user ${userId}, creating new`,
+      );
+    }
+
+    const conversation = await this.prisma.conversation.create({
+      data: { userId, model },
+    });
+
+    return conversation.id;
+  }
+
+  /**
+   * Saves user and assistant messages to the conversation.
+   */
+  async saveMessages(
+    conversationId: string,
+    userMessages: ChatMessage[],
+    assistantContent: string,
+  ): Promise<void> {
+    const data = [
+      // Save only the latest user message (not the full history they sent)
+      ...userMessages
+        .filter((m) => m.role === "user")
+        .slice(-1)
+        .map((m) => ({
+          conversationId,
+          role: m.role,
+          content: m.content,
+        })),
+      {
+        conversationId,
+        role: "assistant" as const,
+        content: assistantContent,
+      },
+    ];
+
+    await this.prisma.message.createMany({ data });
+  }
+
+  /**
+   * Generates a short title for the conversation using the AI model,
+   * based on the first user message. Runs async (fire-and-forget).
+   */
+  async generateTitle(
+    conversationId: string,
+    firstUserMessage: string,
+  ): Promise<void> {
+    try {
+      // Pick the cheapest available model for title generation
+      const models = await this.registry.getAllModels();
+      const cheapest = models.sort(
+        (a, b) => a.inputPrice.toNumber() - b.inputPrice.toNumber(),
+      )[0];
+
+      if (!cheapest) {
+        this.logger.warn("No models available for title generation");
+        return;
+      }
+
+      const response = await this.providerRouter.chat(cheapest.provider, {
+        model: cheapest.slug,
+        providerId: cheapest.providerId,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Generate a short, concise title (max 6 words) for a conversation that starts with the following message. Return ONLY the title text, nothing else. No quotes, no punctuation at the end.",
+          },
+          {
+            role: "user",
+            content: firstUserMessage,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 30,
+      });
+
+      const title = response.choices[0]?.message?.content?.trim();
+
+      if (title) {
+        await this.prisma.conversation.update({
+          where: { id: conversationId },
+          data: { title },
+        });
+
+        this.logger.debug(
+          `Generated title for conversation ${conversationId}: "${title}"`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to generate title for conversation ${conversationId}: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Lists conversations for a user, ordered by most recent activity.
+   */
+  async listConversations(userId: string, limit = 20, offset = 0) {
+    const [conversations, total] = await Promise.all([
+      this.prisma.conversation.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        skip: offset,
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          model: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.conversation.count({ where: { userId } }),
+    ]);
+
+    return { conversations, total };
+  }
+
+  /**
+   * Retrieves a single conversation with all its messages.
+   */
+  async getConversation(conversationId: string, userId: string) {
+    return this.prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+      include: {
+        messages: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            role: true,
+            content: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Deletes a conversation and all its messages (cascade).
+   */
+  async deleteConversation(
+    conversationId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+    });
+
+    if (!conversation) {
+      return false;
+    }
+
+    await this.prisma.conversation.delete({
+      where: { id: conversationId },
+    });
+
+    return true;
+  }
+}
