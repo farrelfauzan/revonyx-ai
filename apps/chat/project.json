@@ -1,0 +1,13 @@
+{
+  "name": "@performa-ai/chat",
+  "targets": {
+    "dev": {
+      "continuous": true,
+      "options": {
+        "cwd": "apps/chat",
+        "command": "next dev --port 4300"
+      },
+      "executor": "nx:run-commands"
+    }
+  }
+}
