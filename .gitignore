@@ -1,0 +1,36 @@
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Nx
+.nx
+
+# Build output
+dist
+tmp
+
+# Next.js
+.next
+out
+
+test-output
+
+# Prisma
+/src/generated/prisma
+apps/api/src/generated/prisma
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+*.swp
+*.swo
