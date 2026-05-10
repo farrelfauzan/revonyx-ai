@@ -10,9 +10,6 @@
       "path": "./apps/api"
     },
     {
-      "path": "./apps/dashboard-e2e"
-    },
-    {
       "path": "./apps/dashboard"
     },
     {
