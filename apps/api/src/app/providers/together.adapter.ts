@@ -18,14 +18,20 @@ export class TogetherAdapter implements ProviderAdapter {
   }
 
   async chat(params: ChatRequest): Promise<ChatResponse> {
+    const body: Record<string, unknown> = {
+      model: params.providerId,
+      messages: params.messages,
+      temperature: params.temperature ?? 0.7,
+      max_tokens: params.max_tokens ?? 4096,
+    };
+
+    if (params.response_format) {
+      body.response_format = params.response_format;
+    }
+
     const response = await axios.post(
       `${this.baseUrl}/chat/completions`,
-      {
-        model: params.providerId,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.7,
-        max_tokens: params.max_tokens ?? 4096,
-      },
+      body,
       {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -59,15 +65,21 @@ export class TogetherAdapter implements ProviderAdapter {
   async *chatStream(
     params: ChatRequest,
   ): AsyncGenerator<string, void, unknown> {
+    const body: Record<string, unknown> = {
+      model: params.providerId,
+      messages: params.messages,
+      temperature: params.temperature ?? 0.7,
+      max_tokens: params.max_tokens ?? 4096,
+      stream: true,
+    };
+
+    if (params.response_format) {
+      body.response_format = params.response_format;
+    }
+
     const response = await axios.post(
       `${this.baseUrl}/chat/completions`,
-      {
-        model: params.providerId,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.7,
-        max_tokens: params.max_tokens ?? 4096,
-        stream: true,
-      },
+      body,
       {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,

@@ -3,12 +3,35 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface JsonSchemaResponseFormat {
+  type: "json_schema";
+  json_schema: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
+}
+
+export interface RegexResponseFormat {
+  type: "regex";
+  pattern: string;
+}
+
+export interface JsonObjectResponseFormat {
+  type: "json_object";
+}
+
+export type ResponseFormat =
+  | JsonSchemaResponseFormat
+  | RegexResponseFormat
+  | JsonObjectResponseFormat;
+
 export interface ChatRequest {
   model: string;
   providerId: string;
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+  response_format?: ResponseFormat;
 }
 
 export interface ChatUsage {
