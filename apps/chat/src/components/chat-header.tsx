@@ -47,7 +47,7 @@ export function ChatHeader() {
             </div>
           )}
 
-          <Button
+          {/* <Button
             variant="ghost"
             size="icon"
             onClick={clearChat}
@@ -55,7 +55,7 @@ export function ChatHeader() {
             className="h-8 w-8 rounded-lg hover:bg-secondary/60"
           >
             <Plus className="h-4 w-4" />
-          </Button>
+          </Button> */}
 
           {hydrated && isLoggedIn() ? (
             <div className="flex items-center gap-1.5">
