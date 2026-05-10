@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useChatStore } from "@/lib/stores";
 import { MessageBubble } from "./message-bubble";
 import { StreamingBubble } from "./streaming-bubble";
@@ -14,7 +14,11 @@ const suggestions = [
   { icon: Sparkles, text: "Help me brainstorm startup ideas" },
 ];
 
-export function ChatMessages() {
+export interface ChatMessagesHandle {
+  scrollToBottom: () => void;
+}
+
+export const ChatMessages = forwardRef<ChatMessagesHandle, { onNearBottomChange?: (nearBottom: boolean) => void }>(function ChatMessages({ onNearBottomChange }, ref) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -23,14 +27,24 @@ export function ChatMessages() {
   const isNearBottom = useRef(true);
   const prevMessageCount = useRef(0);
 
+  useImperativeHandle(ref, () => ({
+    scrollToBottom: () => {
+      const container = scrollRef.current;
+      if (!container) return;
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    },
+  }));
+
   const handleScroll = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
     const threshold = 100;
-    isNearBottom.current =
+    const nearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       threshold;
-  }, []);
+    isNearBottom.current = nearBottom;
+    onNearBottomChange?.(nearBottom);
+  }, [onNearBottomChange]);
 
   // Force scroll to bottom when a new message is added (user sent a message)
   useEffect(() => {
@@ -128,4 +142,4 @@ export function ChatMessages() {
       </div>
     </div>
   );
-}
+});
