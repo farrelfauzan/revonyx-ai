@@ -21,7 +21,7 @@ interface ChatState {
   setStreaming: (val: boolean) => void;
   setStreamStatus: (status: StreamStatus | null) => void;
   appendStreamContent: (chunk: string) => void;
-  finalizeStream: () => void;
+  finalizeStream: (isJson?: boolean) => void;
   setSelectedModel: (model: string | null) => void;
   setConversationId: (id: string | null) => void;
   loadConversation: (
@@ -61,9 +61,18 @@ export const useChatStore = create<ChatState>()(
       appendStreamContent: (chunk) =>
         set((s) => ({ streamingContent: s.streamingContent + chunk })),
 
-      finalizeStream: () => {
-        const content = get().streamingContent;
+      finalizeStream: (isJson) => {
+        let content = get().streamingContent;
         if (content) {
+          if (isJson) {
+            // Pretty-print and wrap in markdown code block for nice rendering
+            try {
+              const parsed = JSON.parse(content);
+              content = "```json\n" + JSON.stringify(parsed, null, 2) + "\n```";
+            } catch {
+              // If not valid JSON, render as-is
+            }
+          }
           get().addMessage({ role: "assistant", content });
         }
         set({ isStreaming: false, streamingContent: "", streamStatus: null });

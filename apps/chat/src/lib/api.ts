@@ -39,6 +39,14 @@ export type StreamStatus =
   | "searching_knowledge"
   | "generating";
 
+export type ResponseFormat =
+  | {
+      type: "json_schema";
+      json_schema: { name: string; schema: Record<string, unknown> };
+    }
+  | { type: "regex"; pattern: string }
+  | { type: "json_object" };
+
 export function streamCompletion(
   messages: { role: string; content: string }[],
   model?: string,
@@ -47,6 +55,7 @@ export function streamCompletion(
   onError?: (err: Error) => void,
   conversationId?: string,
   onStatus?: (status: StreamStatus) => void,
+  responseFormat?: ResponseFormat,
 ): AbortController {
   const controller = new AbortController();
   const sessionToken = getOrCreateSessionToken();
@@ -68,6 +77,7 @@ export function streamCompletion(
       messages,
       ...(model ? { model } : {}),
       ...(conversationId ? { conversation_id: conversationId } : {}),
+      ...(responseFormat ? { response_format: responseFormat } : {}),
     }),
     signal: controller.signal,
   })

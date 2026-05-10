@@ -12,7 +12,7 @@ import {
 import { ArrowUp, Square, Sparkles, LogIn } from "lucide-react";
 import { useAuthStore, useChatStore, useHydrated } from "@/lib/stores";
 import { usePortalUsage, usePortalModels } from "@/hooks/use-portal";
-import { streamCompletion } from "@/lib/api";
+import { streamCompletion, type ResponseFormat } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -72,21 +72,37 @@ export function ChatInput() {
     const text = input.trim();
     if (!text || isStreaming) return;
 
-    addMessage({ role: "user", content: text });
+    // Detect /json command prefix
+    let userText = text;
+    let responseFormat: ResponseFormat | undefined;
+    if (text.startsWith("/json ")) {
+      userText = text.slice(6).trim();
+      responseFormat = { type: "json_object" };
+    }
+
+    addMessage({ role: "user", content: userText });
     setInput("");
     setStreaming(true);
 
     const allMessages = [
       ...messages.map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content: text },
+      { role: "user", content: userText },
     ];
+
+    // When using JSON mode, prepend instruction to respond in JSON
+    if (responseFormat) {
+      allMessages.unshift({
+        role: "system",
+        content: "You must respond only in valid JSON format. Structure your response as a JSON object with relevant keys.",
+      });
+    }
 
     abortRef.current = streamCompletion(
       allMessages,
       selectedModel || undefined,
       (chunk) => appendStreamContent(chunk),
       (returnedConversationId) => {
-        finalizeStream();
+        finalizeStream(!!responseFormat);
         if (returnedConversationId) {
           setConversationId(returnedConversationId);
         }
@@ -99,6 +115,7 @@ export function ChatInput() {
       },
       conversationId || undefined,
       (status) => setStreamStatus(status),
+      responseFormat,
     );
   };
 
