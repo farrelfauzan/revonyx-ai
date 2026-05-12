@@ -32,6 +32,7 @@ export interface ChatRequest {
   temperature?: number;
   max_tokens?: number;
   response_format?: ResponseFormat;
+  reasoning_effort?: "low" | "medium" | "high";
 }
 
 export interface ChatUsage {

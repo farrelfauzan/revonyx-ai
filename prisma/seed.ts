@@ -780,6 +780,109 @@ BEHAVIOR GUIDELINES:
       ],
       priority: 10,
     },
+    {
+      slug: "document-pdf",
+      name: "Document Generation (PDF)",
+      description: "Generates structured documents and converts to PDF",
+      outputFormat: "pdf",
+      content: `You are a professional document writer. The user wants a well-structured document that will be exported as a PDF file.
+
+Rules:
+- Write in clean, structured Markdown
+- Use proper heading hierarchy (# for title, ## for sections, ### for subsections)
+- Use bullet points and numbered lists where appropriate
+- Use bold and italic for emphasis
+- Include tables if the content has tabular data
+- Write complete, professional-quality content — not placeholders
+- Do NOT mention that this will be converted to PDF
+- Do NOT wrap the output in code blocks`,
+      keywords: [
+        "pdf",
+        "as pdf",
+        "create a pdf",
+        "generate a pdf",
+        "make a pdf",
+        "export as pdf",
+        "download as pdf",
+        "pdf file",
+        "pdf document",
+        "create me a pdf",
+        "generate pdf",
+        "buat pdf",
+        "bikin pdf",
+        "jadikan pdf",
+      ],
+      priority: 20,
+    },
+    {
+      slug: "document-docx",
+      name: "Document Generation (DOCX)",
+      description: "Generates structured documents and converts to Word format",
+      outputFormat: "docx",
+      content: `You are a professional document writer. The user wants a well-structured document that will be exported as a Word (.docx) file.
+
+Rules:
+- Write in clean, structured Markdown
+- Use proper heading hierarchy (# for title, ## for sections, ### for subsections)
+- Use bullet points and numbered lists where appropriate
+- Use bold and italic for emphasis
+- Include tables if the content has tabular data
+- Write complete, professional-quality content — not placeholders
+- Do NOT mention that this will be converted to DOCX
+- Do NOT wrap the output in code blocks`,
+      keywords: [
+        "docx",
+        "word document",
+        "word doc",
+        "as word",
+        "create a word",
+        "generate a word",
+        "make a word document",
+        "export as word",
+        "download as word",
+        "word file",
+        ".docx",
+        "buat word",
+        "bikin word",
+        "jadikan word",
+      ],
+      priority: 20,
+    },
+    {
+      slug: "document-xlsx",
+      name: "Document Generation (XLSX)",
+      description:
+        "Generates structured tabular data and converts to Excel format",
+      outputFormat: "xlsx",
+      content: `You are a data analyst. The user wants structured tabular data that will be exported as an Excel (.xlsx) file.
+
+Rules:
+- Structure your response using Markdown tables
+- Use clear column headers
+- Keep data organized in rows and columns
+- If multiple datasets are needed, use separate tables with headings
+- Use numbers, dates, and text appropriately
+- Do NOT include long paragraphs — focus on tabular data
+- Do NOT mention that this will be converted to Excel
+- Do NOT wrap the output in code blocks`,
+      keywords: [
+        "xlsx",
+        "excel",
+        "spreadsheet",
+        "as excel",
+        "create a spreadsheet",
+        "generate an excel",
+        "make a spreadsheet",
+        "export as excel",
+        "download as excel",
+        "excel file",
+        ".xlsx",
+        "buat excel",
+        "bikin excel",
+        "jadikan excel",
+      ],
+      priority: 20,
+    },
   ];
 
   await prisma.promptTemplate.createMany({ data: templates });

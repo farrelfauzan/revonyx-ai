@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 @Injectable()
 export class S3Service {
@@ -78,5 +79,38 @@ export class S3Service {
 
   buildKey(userId: string, knowledgeBaseId: string, filename: string): string {
     return `knowledge/${userId}/${knowledgeBaseId}/${Date.now()}-${filename}`;
+  }
+
+  async uploadWithDisposition(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    filename: string,
+  ): Promise<string> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentDisposition: `attachment; filename="${filename}"`,
+      }),
+    );
+
+    this.logger.log(`Uploaded ${key} to S3`);
+    return key;
+  }
+
+  async getPresignedUrl(
+    key: string,
+    filename: string,
+    expiresIn = 3600,
+  ): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    });
+    return getSignedUrl(this.client, command, { expiresIn });
   }
 }

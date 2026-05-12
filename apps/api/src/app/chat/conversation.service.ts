@@ -2,10 +2,20 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProviderRouter } from "../providers/provider-router";
 import { ModelRegistryService } from "../config/model-registry.service";
+import {
+  DocumentService,
+  type DocumentResult,
+} from "../document/document.service";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+}
+
+interface SavedDocumentMetadata {
+  format: string;
+  filename: string;
+  key: string;
 }
 
 @Injectable()
@@ -16,6 +26,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly providerRouter: ProviderRouter,
     private readonly registry: ModelRegistryService,
+    private readonly documentService: DocumentService,
   ) {}
 
   /**
@@ -56,6 +67,7 @@ export class ConversationService {
     conversationId: string,
     userMessages: ChatMessage[],
     assistantContent: string,
+    document?: SavedDocumentMetadata,
   ): Promise<void> {
     const data = [
       // Save only the latest user message (not the full history they sent)
@@ -71,6 +83,9 @@ export class ConversationService {
         conversationId,
         role: "assistant" as const,
         content: assistantContent,
+        documentFormat: document?.format,
+        documentFilename: document?.filename,
+        documentKey: document?.key,
       },
     ];
 
@@ -162,7 +177,7 @@ export class ConversationService {
    * Retrieves a single conversation with all its messages.
    */
   async getConversation(conversationId: string, userId: string) {
-    return this.prisma.conversation.findFirst({
+    const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
       include: {
         messages: {
@@ -171,11 +186,55 @@ export class ConversationService {
             id: true,
             role: true,
             content: true,
+            documentFormat: true,
+            documentFilename: true,
+            documentKey: true,
             createdAt: true,
           },
         },
       },
     });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const messages = await Promise.all(
+      conversation.messages.map(async (message) => {
+        let document: DocumentResult | undefined;
+
+        if (
+          message.documentFormat &&
+          message.documentFilename &&
+          message.documentKey
+        ) {
+          try {
+            document = await this.documentService.getDocumentFromStorage({
+              format: message.documentFormat,
+              filename: message.documentFilename,
+              key: message.documentKey,
+            });
+          } catch (error: any) {
+            this.logger.warn(
+              `Failed to rehydrate document for message ${message.id}: ${error.message}`,
+            );
+          }
+        }
+
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          ...(document ? { document } : {}),
+        };
+      }),
+    );
+
+    return {
+      ...conversation,
+      messages,
+    };
   }
 
   /**

@@ -9,6 +9,7 @@ import { ProvidersModule } from "../providers/providers.module";
 import { UsageModule } from "../usage/usage.module";
 import { ChatModule } from "../chat/chat.module";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
+import { DocumentModule } from "../document/document.module";
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { KnowledgeModule } from "../knowledge/knowledge.module";
     UsageModule,
     ChatModule,
     KnowledgeModule,
+    DocumentModule,
   ],
   controllers: [PortalController],
   providers: [PortalTierService, PortalGuard],

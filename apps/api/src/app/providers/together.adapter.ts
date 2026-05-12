@@ -13,8 +13,28 @@ export class TogetherAdapter implements ProviderAdapter {
   private readonly apiKey: string;
   private readonly baseUrl = "https://api.together.xyz/v1";
 
+  // Models that support reasoning_effort parameter
+  private readonly modelsWithReasoningSupport = [
+    "MiniMaxAI/MiniMax-M2.7",
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "zai-org/GLM-5.1",
+    "zai-org/GLM-5",
+    "moonshotai/Kimi-K2.6",
+    "moonshotai/Kimi-K2.5",
+    "Qwen/Qwen3.6-Plus",
+    "Qwen/Qwen3.5-397B-A17B",
+    "Qwen/Qwen3.5-9B",
+    "deepcogito/cogito-v2-1-671b",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+  ];
+
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.getOrThrow<string>("TOGETHER_API_KEY");
+  }
+
+  private supportsReasoning(modelId: string): boolean {
+    return this.modelsWithReasoningSupport.includes(modelId);
   }
 
   async chat(params: ChatRequest): Promise<ChatResponse> {
@@ -24,6 +44,11 @@ export class TogetherAdapter implements ProviderAdapter {
       temperature: params.temperature ?? 0.7,
       max_tokens: params.max_tokens ?? 4096,
     };
+
+    // Only add reasoning_effort for models that support it
+    if (this.supportsReasoning(params.providerId) && params.reasoning_effort) {
+      body.reasoning_effort = params.reasoning_effort;
+    }
 
     if (params.response_format) {
       body.response_format = params.response_format;
@@ -72,6 +97,11 @@ export class TogetherAdapter implements ProviderAdapter {
       max_tokens: params.max_tokens ?? 4096,
       stream: true,
     };
+
+    // Only add reasoning_effort for models that support it
+    if (this.supportsReasoning(params.providerId) && params.reasoning_effort) {
+      body.reasoning_effort = params.reasoning_effort;
+    }
 
     if (params.response_format) {
       body.response_format = params.response_format;
