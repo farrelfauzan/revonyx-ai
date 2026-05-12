@@ -1,16 +1,15 @@
 "use client";
 
 import { usePortalUsage } from "@/hooks/use-portal";
-import { useAuthStore, useChatStore, useHydrated } from "@/lib/stores";
+import { useAuthStore, useHydrated } from "@/lib/stores";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Plus, LogIn, LogOut, Sparkles } from "lucide-react";
+import { LogIn, LogOut, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 export function ChatHeader() {
   const { data: usage } = usePortalUsage();
-  const { clearChat } = useChatStore();
   const { email, logout, isLoggedIn } = useAuthStore();
   const queryClient = useQueryClient();
   const hydrated = useHydrated();
@@ -59,7 +58,7 @@ export function ChatHeader() {
 
           {hydrated && isLoggedIn() ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-muted-foreground hidden sm:inline max-w-[120px] truncate">
+              <span className="text-[11px] text-muted-foreground hidden sm:inline max-w-30 truncate">
                 {email}
               </span>
               <Button

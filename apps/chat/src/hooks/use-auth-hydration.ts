@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/stores";
-import { portalFetch } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 
 /**
  * On mount, verify the stored JWT by calling /auth/me.
@@ -21,7 +21,8 @@ export function useAuthHydration() {
 
     if (!jwt) return;
 
-    portalFetch<{ id: string; email: string; balance: number }>("/auth/me")
+    apiClient
+      .get<{ id: string; email: string; balance: number }>("/auth/me")
       .then((user) => {
         setAuth(jwt, user.email, Number(user.balance));
         queryClient.invalidateQueries({ queryKey: ["portal-usage"] });

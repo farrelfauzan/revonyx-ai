@@ -2,7 +2,7 @@
 
 import { useChatStore } from "@/lib/stores";
 import type { StreamStatus } from "@/lib/api";
-import { Sparkles, Brain, Search, PenTool } from "lucide-react";
+import { Sparkles, Brain, Search, PenTool, FileDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,6 +27,11 @@ const STATUS_CONFIG: Record<
     icon: PenTool,
     label: "Generating response...",
     color: "text-emerald-400",
+  },
+  generating_document: {
+    icon: FileDown,
+    label: "Generating document...",
+    color: "text-blue-400",
   },
 };
 
@@ -75,6 +80,11 @@ function ThinkingIndicator({ status }: { status: StreamStatus }) {
 export function StreamingBubble() {
   const content = useChatStore((s) => s.streamingContent);
   const streamStatus = useChatStore((s) => s.streamStatus);
+  const pendingDocument = useChatStore((s) => s.pendingDocument);
+
+  // Hide streamed content when generating a document — only show status indicator
+  const isDocumentMode = streamStatus === "generating_document" || !!pendingDocument;
+  const showContent = content && !isDocumentMode;
 
   return (
     <motion.div
@@ -87,7 +97,7 @@ export function StreamingBubble() {
         <Sparkles className="h-3.5 w-3.5 text-white" />
       </div>
       <div className="prose prose-invert prose-sm max-w-none flex-1 min-w-0 leading-relaxed">
-        {content ? (
+        {showContent ? (
           <>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

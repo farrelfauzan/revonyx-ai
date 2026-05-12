@@ -19,14 +19,31 @@ import Link from "next/link";
 
 const LOW_REQUEST_THRESHOLD = 5;
 
+const MODELS_WITH_REASONING_SUPPORT = [
+  "minimax-m2.7",
+  "deepseek-v4-pro",
+  "glm-5.1",
+  "glm-5",
+  "kimi-k2.6",
+  "kimi-k2.5",
+  "qwen-3.6-plus",
+  "qwen-3.5-397b-a17b",
+  "qwen-3.5-9b",
+  "cogito-v2.1-671b",
+  "gpt-oss-120b",
+  "gpt-oss-20b",
+];
+
 export function ChatInput() {
   const [input, setInput] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<string>("medium");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const {
     messages,
     isStreaming,
     conversationId,
+    streamingConversationId,
     addMessage,
     setStreaming,
     setStreamStatus,
@@ -35,6 +52,7 @@ export function ChatInput() {
     selectedModel,
     setSelectedModel,
     setConversationId,
+    setPendingDocument,
   } = useChatStore();
   const { isLoggedIn } = useAuthStore();
   const { data: usage } = usePortalUsage();
@@ -82,7 +100,8 @@ export function ChatInput() {
 
     addMessage({ role: "user", content: userText });
     setInput("");
-    setStreaming(true);
+    const streamOriginConversationId = conversationId;
+    setStreaming(true, streamOriginConversationId);
 
     const allMessages = [
       ...messages.map((m) => ({ role: m.role, content: m.content })),
@@ -100,28 +119,44 @@ export function ChatInput() {
     abortRef.current = streamCompletion(
       allMessages,
       selectedModel || undefined,
+      reasoningEffort,
       (chunk) => appendStreamContent(chunk),
       (returnedConversationId) => {
-        finalizeStream(!!responseFormat);
-        if (returnedConversationId) {
+        const currentConversationId = useChatStore.getState().conversationId;
+        const shouldCommitMessage =
+          currentConversationId === streamOriginConversationId ||
+          (streamOriginConversationId === null && currentConversationId === null);
+
+        finalizeStream(!!responseFormat, shouldCommitMessage);
+
+        if (returnedConversationId && shouldCommitMessage) {
           setConversationId(returnedConversationId);
         }
         queryClient.invalidateQueries({ queryKey: ["portal-usage"] });
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
       },
       (err) => {
-        finalizeStream();
-        addMessage({ role: "assistant", content: `Error: ${err.message}` });
+        const currentConversationId = useChatStore.getState().conversationId;
+        const shouldCommitMessage =
+          currentConversationId === streamOriginConversationId ||
+          (streamOriginConversationId === null && currentConversationId === null);
+
+        finalizeStream(undefined, shouldCommitMessage);
+        if (shouldCommitMessage) {
+          addMessage({ role: "assistant", content: `Error: ${err.message}` });
+        }
       },
       conversationId || undefined,
       (status) => setStreamStatus(status),
       responseFormat,
+      (doc) => setPendingDocument(doc),
     );
   };
 
   const handleStop = () => {
     abortRef.current?.abort();
-    finalizeStream();
+    const shouldCommitMessage = conversationId === streamingConversationId;
+    finalizeStream(undefined, shouldCommitMessage);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -228,26 +263,53 @@ export function ChatInput() {
 
         {/* Model selector below input (paid users only) */}
         {hasModels && isPaid ? (
-          <div className="flex items-center gap-2 mt-2 px-1">
-            <Select
-              value={selectedModel || defaultModel || ""}
-              onValueChange={(v) => setSelectedModel(v || null)}
-            >
-              <SelectTrigger size="sm" className="h-7 w-auto text-[11px] border-border/30 bg-secondary/40 rounded-lg gap-1 px-2.5 hover:bg-secondary/60 transition-colors">
-                <SelectValue placeholder="Select model" />
-              </SelectTrigger>
-              <SelectContent position="popper" side="top" sideOffset={4}>
-                {models.map((m) => (
-                  <SelectItem
-                    key={m.slug}
-                    value={m.slug}
-                    className="text-xs"
-                  >
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-row gap-2 mt-2 px-1">
+            <div className="flex items-center gap-2">
+              <Select
+                value={selectedModel || defaultModel || ""}
+                onValueChange={(v) => setSelectedModel(v || null)}
+              >
+                <SelectTrigger size="sm" className="h-7 w-auto text-[11px] border-border/30 bg-secondary/40 rounded-lg gap-1 px-2.5 hover:bg-secondary/60 transition-colors">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent position="popper" side="top" sideOffset={4}>
+                  {models.map((m) => (
+                    <SelectItem
+                      key={m.slug}
+                      value={m.slug}
+                      className="text-xs"
+                    >
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Reasoning effort selector (only for supported models) */}
+            {MODELS_WITH_REASONING_SUPPORT.includes(selectedModel || "") ? (
+              <div className="flex items-center gap-2">
+                <Select
+                  value={reasoningEffort}
+                  onValueChange={setReasoningEffort}
+                >
+                  <SelectTrigger size="sm" className="h-7 w-auto text-[11px] border-border/30 bg-secondary/40 rounded-lg gap-1 px-2.5 hover:bg-secondary/60 transition-colors">
+                    <SelectValue placeholder="Reasoning effort" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" side="top" sideOffset={4}>
+                    <SelectItem value="low" className="text-xs">
+                      Low
+                    </SelectItem>
+                    <SelectItem value="medium" className="text-xs">
+                      Medium
+                    </SelectItem>
+                    <SelectItem value="high" className="text-xs">
+                      High
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
