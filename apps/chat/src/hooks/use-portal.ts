@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { portalFetch } from "@/lib/api";
+import apiClient from "@/lib/api-client";
 
 export interface PortalUsage {
   tier: "free" | "paid";
@@ -22,7 +22,7 @@ export interface PortalModel {
 export function usePortalUsage() {
   return useQuery<PortalUsage>({
     queryKey: ["portal-usage"],
-    queryFn: () => portalFetch("/chat/portal/usage"),
+    queryFn: () => apiClient.get<PortalUsage>("/chat/portal/usage"),
     refetchInterval: 30000,
   });
 }
@@ -31,7 +31,7 @@ export function usePortalModels() {
   return useQuery<PortalModel[]>({
     queryKey: ["portal-models"],
     queryFn: async () => {
-      const res = await portalFetch<{ models: PortalModel[] }>(
+      const res = await apiClient.get<{ models: PortalModel[] }>(
         "/chat/portal/models",
       );
       return res.models;

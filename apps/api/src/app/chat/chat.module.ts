@@ -10,9 +10,16 @@ import { BillingModule } from "../billing/billing.module";
 import { ProvidersModule } from "../providers/providers.module";
 import { UsageModule } from "../usage/usage.module";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
+import { DocumentModule } from "../document/document.module";
 
 @Module({
-  imports: [BillingModule, ProvidersModule, UsageModule, KnowledgeModule],
+  imports: [
+    BillingModule,
+    ProvidersModule,
+    UsageModule,
+    KnowledgeModule,
+    DocumentModule,
+  ],
   controllers: [ChatController, ConversationController, ModelsController],
   providers: [
     ChatService,

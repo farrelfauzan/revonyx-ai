@@ -1,28 +1,7 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1";
+import { apiClient } from "./api-client";
+import { config } from "./config";
 
-export async function portalFetch<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const sessionToken = getOrCreateSessionToken();
-  const jwt =
-    typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Portal-Session": sessionToken,
-    ...(options.headers as Record<string, string>),
-  };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${res.status}`);
-  }
-  return res.json();
-}
+const API_BASE = config.apiUrl;
 
 export function getOrCreateSessionToken(): string {
   if (typeof window === "undefined") return "";
@@ -37,7 +16,15 @@ export function getOrCreateSessionToken(): string {
 export type StreamStatus =
   | "understanding"
   | "searching_knowledge"
-  | "generating";
+  | "generating"
+  | "generating_document";
+
+export interface DocumentAttachment {
+  format: string;
+  url: string;
+  filename: string;
+  expiresAt: string;
+}
 
 export type ResponseFormat =
   | {
@@ -50,12 +37,14 @@ export type ResponseFormat =
 export function streamCompletion(
   messages: { role: string; content: string }[],
   model?: string,
+  reasoningEffort?: string,
   onChunk?: (text: string) => void,
   onDone?: (conversationId?: string) => void,
   onError?: (err: Error) => void,
   conversationId?: string,
   onStatus?: (status: StreamStatus) => void,
   responseFormat?: ResponseFormat,
+  onDocument?: (doc: DocumentAttachment) => void,
 ): AbortController {
   const controller = new AbortController();
   const sessionToken = getOrCreateSessionToken();
@@ -76,6 +65,7 @@ export function streamCompletion(
     body: JSON.stringify({
       messages,
       ...(model ? { model } : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       ...(conversationId ? { conversation_id: conversationId } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }),
@@ -110,6 +100,11 @@ export function streamCompletion(
               // Check for status event
               if (parsed.status) {
                 onStatus?.(parsed.status);
+                continue;
+              }
+              // Check for document event
+              if (parsed.document) {
+                onDocument?.(parsed.document);
                 continue;
               }
               // Check for conversation_id event
@@ -154,6 +149,7 @@ export interface ConversationDetail {
     id: string;
     role: "user" | "assistant";
     content: string;
+    document?: DocumentAttachment;
     createdAt: string;
   }[];
 }
@@ -162,36 +158,19 @@ export async function fetchConversations(
   limit = 20,
   offset = 0,
 ): Promise<{ data: ConversationSummary[]; total: number }> {
-  return portalFetch(
-    `/chat/portal/conversations?limit=${limit}&offset=${offset}`,
-  );
+  return apiClient.get("/chat/portal/conversations", {
+    params: { limit, offset },
+  });
 }
 
 export async function fetchConversation(
   id: string,
 ): Promise<ConversationDetail> {
-  return portalFetch(`/chat/portal/conversations/${id}`);
+  return apiClient.get(`/chat/portal/conversations/${id}`);
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const sessionToken = getOrCreateSessionToken();
-  const jwt =
-    typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
-
-  const headers: Record<string, string> = {
-    "X-Portal-Session": sessionToken,
-  };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  const res = await fetch(`${API_BASE}/chat/portal/conversations/${id}`, {
-    method: "DELETE",
-    headers,
-  });
-
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${res.status}`);
-  }
+  await apiClient.delete(`/chat/portal/conversations/${id}`);
 }
 
 // ─── Knowledge Base API ───
@@ -215,71 +194,31 @@ export interface KnowledgeChunk {
 }
 
 export async function fetchKnowledgeBases(): Promise<KnowledgeBase[]> {
-  return portalFetch("/chat/portal/knowledge");
+  return apiClient.get("/chat/portal/knowledge");
 }
 
 export async function createKnowledgeBase(data: {
   name: string;
   description?: string;
 }): Promise<KnowledgeBase> {
-  return portalFetch("/chat/portal/knowledge", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiClient.post("/chat/portal/knowledge", data);
 }
 
 export async function deleteKnowledgeBase(id: string): Promise<void> {
-  const sessionToken = getOrCreateSessionToken();
-  const jwt =
-    typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
-
-  const headers: Record<string, string> = {
-    "X-Portal-Session": sessionToken,
-  };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  const res = await fetch(`${API_BASE}/chat/portal/knowledge/${id}`, {
-    method: "DELETE",
-    headers,
-  });
-
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${res.status}`);
-  }
+  await apiClient.delete(`/chat/portal/knowledge/${id}`);
 }
 
 export async function uploadKnowledgeBaseFile(
   knowledgeBaseId: string,
   file: File,
 ): Promise<{ filename: string; s3Key: string; chunksInserted: number }> {
-  const sessionToken = getOrCreateSessionToken();
-  const jwt =
-    typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
-
-  const headers: Record<string, string> = {
-    "X-Portal-Session": sessionToken,
-  };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
   const formData = new FormData();
   formData.append("file", file);
-
-  const res = await fetch(
-    `${API_BASE}/chat/portal/knowledge/${knowledgeBaseId}/upload`,
-    {
-      method: "POST",
-      headers,
-      body: formData,
-    },
+  return apiClient.post(
+    `/chat/portal/knowledge/${knowledgeBaseId}/upload`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
   );
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Upload failed: ${res.status}`);
-  }
-
-  return res.json();
 }
 
 export async function fetchKnowledgeChunks(
@@ -287,34 +226,16 @@ export async function fetchKnowledgeChunks(
   limit = 50,
   offset = 0,
 ): Promise<{ chunks: KnowledgeChunk[]; total: number }> {
-  return portalFetch(
-    `/chat/portal/knowledge/${knowledgeBaseId}/chunks?limit=${limit}&offset=${offset}`,
-  );
+  return apiClient.get(`/chat/portal/knowledge/${knowledgeBaseId}/chunks`, {
+    params: { limit, offset },
+  });
 }
 
 export async function deleteKnowledgeChunk(
   knowledgeBaseId: string,
   chunkId: string,
 ): Promise<void> {
-  const sessionToken = getOrCreateSessionToken();
-  const jwt =
-    typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
-
-  const headers: Record<string, string> = {
-    "X-Portal-Session": sessionToken,
-  };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  const res = await fetch(
-    `${API_BASE}/chat/portal/knowledge/${knowledgeBaseId}/chunks/${chunkId}`,
-    {
-      method: "DELETE",
-      headers,
-    },
+  await apiClient.delete(
+    `/chat/portal/knowledge/${knowledgeBaseId}/chunks/${chunkId}`,
   );
-
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${res.status}`);
-  }
 }

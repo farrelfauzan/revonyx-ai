@@ -21,11 +21,15 @@ export interface ChatMessagesHandle {
 export const ChatMessages = forwardRef<ChatMessagesHandle, { onNearBottomChange?: (nearBottom: boolean) => void }>(function ChatMessages({ onNearBottomChange }, ref) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const conversationId = useChatStore((s) => s.conversationId);
+  const streamingConversationId = useChatStore((s) => s.streamingConversationId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamingContent = useChatStore((s) => s.streamingContent);
   const isNearBottom = useRef(true);
   const prevMessageCount = useRef(0);
+  const isStreamingForCurrentConversation =
+    isStreaming && conversationId === streamingConversationId;
 
   useImperativeHandle(ref, () => ({
     scrollToBottom: () => {
@@ -62,9 +66,9 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, { onNearBottomChange?
     const container = scrollRef.current;
     if (!container || !isNearBottom.current) return;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [streamingContent, isStreaming]);
+  }, [streamingContent, isStreamingForCurrentConversation]);
 
-  if (messages.length === 0 && !isStreaming) {
+  if (messages.length === 0 && !isStreamingForCurrentConversation) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
         <motion.div
@@ -137,7 +141,7 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, { onNearBottomChange?
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {isStreaming && <StreamingBubble />}
+        {isStreamingForCurrentConversation && <StreamingBubble />}
         <div ref={bottomRef} />
       </div>
     </div>

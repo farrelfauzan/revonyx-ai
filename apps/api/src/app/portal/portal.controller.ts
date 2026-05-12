@@ -27,6 +27,7 @@ import { UsageService } from "../usage/usage.service";
 import { PromptTuningService } from "../chat/prompt-tuning.service";
 import { ConversationService } from "../chat/conversation.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
+import { DocumentService } from "../document/document.service";
 import {
   ChatCompletionRequest,
   ChatCompletionRequestSchema,
@@ -50,6 +51,7 @@ export class PortalController {
     private readonly promptTuning: PromptTuningService,
     private readonly conversation: ConversationService,
     private readonly knowledge: KnowledgeService,
+    private readonly documentService: DocumentService,
   ) {}
 
   @Post("completions")
@@ -359,7 +361,7 @@ export class PortalController {
     }
 
     // Check limit
-    const { allowed, remaining } = await this.tierService.canMakeRequest(
+    const { allowed } = await this.tierService.canMakeRequest(
       identity.sessionId,
     );
     if (!allowed) {
@@ -393,10 +395,20 @@ export class PortalController {
       res.raw.write(`data: ${JSON.stringify({ status: "understanding" })}\n\n`);
 
       // Apply prompt tuning
-      const tunedMessages = await this.promptTuning.applyTuning(body.messages);
+      const { tunedMessages, matchedTemplate } =
+        await this.promptTuning.applyTuning(body.messages);
 
-      // Emit status: generating
-      res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
+      const outputFormat =
+        body.output_format || matchedTemplate?.outputFormat || null;
+
+      // Emit status: generating (or generating_document if document intent detected)
+      if (outputFormat) {
+        res.raw.write(
+          `data: ${JSON.stringify({ status: "generating_document" })}\n\n`,
+        );
+      } else {
+        res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
+      }
 
       const stream = this.providerRouter.chatStream(cheapest.provider, {
         model: cheapest.slug,
@@ -404,10 +416,36 @@ export class PortalController {
         messages: tunedMessages,
         temperature: body.temperature,
         max_tokens: body.max_tokens ?? 4096,
+        reasoning_effort: body.reasoning_effort,
       });
 
+      let fullContent = "";
       for await (const chunk of stream) {
         res.raw.write(`data: ${chunk}\n\n`);
+        try {
+          const parsed = JSON.parse(chunk);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) fullContent += delta;
+        } catch {
+          // ignore
+        }
+      }
+
+      // Generate document if output_format detected
+      if (outputFormat && fullContent) {
+        try {
+          const document = await this.documentService.generate(
+            fullContent,
+            outputFormat,
+            this.extractLatestUserPrompt(body.messages),
+          );
+          res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
+        } catch (err: any) {
+          this.logger.error(
+            `Document generation failed: ${err.message}`,
+            err.stack,
+          );
+        }
       }
 
       res.raw.write("data: [DONE]\n\n");
@@ -493,13 +531,20 @@ export class PortalController {
       }
 
       // Apply prompt tuning (with user KB context)
-      const tunedMessages = await this.promptTuning.applyTuning(
-        body.messages,
-        user.id,
-      );
+      const { tunedMessages, matchedTemplate } =
+        await this.promptTuning.applyTuning(body.messages, user.id);
 
-      // Emit status: generating
-      res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
+      const outputFormat =
+        body.output_format || matchedTemplate?.outputFormat || null;
+
+      // Emit status: generating (or generating_document if document intent detected)
+      if (outputFormat) {
+        res.raw.write(
+          `data: ${JSON.stringify({ status: "generating_document" })}\n\n`,
+        );
+      } else {
+        res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
+      }
 
       const stream = this.providerRouter.chatStream(modelConfig.provider, {
         model: body.model,
@@ -507,6 +552,7 @@ export class PortalController {
         messages: tunedMessages,
         temperature: body.temperature,
         max_tokens: body.max_tokens ?? 4096,
+        reasoning_effort: body.reasoning_effort,
       });
 
       for await (const chunk of stream) {
@@ -558,6 +604,31 @@ export class PortalController {
         })
         .catch((err) => this.logger.error("Failed to log usage", err));
 
+      let generatedDocument:
+        | {
+            format: string;
+            url: string;
+            filename: string;
+            expiresAt: string;
+            key: string;
+          }
+        | undefined;
+
+      if (outputFormat && fullContent) {
+        try {
+          generatedDocument = await this.documentService.generateWithStorage(
+            fullContent,
+            outputFormat,
+            this.extractLatestUserPrompt(body.messages),
+          );
+        } catch (err: any) {
+          this.logger.error(
+            `Document generation failed: ${err.message}`,
+            err.stack,
+          );
+        }
+      }
+
       // Save conversation for paid users (always store=true)
       let conversationId: string | undefined;
       if (fullContent) {
@@ -567,8 +638,23 @@ export class PortalController {
           body.conversation_id,
         );
 
+        const assistantContent = generatedDocument
+          ? this.buildDocumentResponseText(generatedDocument)
+          : fullContent;
+
         this.conversation
-          .saveMessages(conversationId, body.messages, fullContent)
+          .saveMessages(
+            conversationId,
+            body.messages,
+            assistantContent,
+            generatedDocument
+              ? {
+                  format: generatedDocument.format,
+                  filename: generatedDocument.filename,
+                  key: generatedDocument.key,
+                }
+              : undefined,
+          )
           .then(async () => {
             if (!body.conversation_id) {
               const firstUserMsg = body.messages.find((m) => m.role === "user");
@@ -592,6 +678,16 @@ export class PortalController {
         );
       }
 
+      if (generatedDocument) {
+        const document = {
+          format: generatedDocument.format,
+          url: generatedDocument.url,
+          filename: generatedDocument.filename,
+          expiresAt: generatedDocument.expiresAt,
+        };
+        res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
+      }
+
       res.raw.write("data: [DONE]\n\n");
       res.raw.end();
     } catch (error: any) {
@@ -603,5 +699,23 @@ export class PortalController {
       );
       res.raw.end();
     }
+  }
+
+  private buildDocumentResponseText(document: {
+    format: string;
+    filename: string;
+  }): string {
+    return `I've generated your ${document.format.toUpperCase()} document: **${document.filename}**`;
+  }
+
+  private extractLatestUserPrompt(
+    messages: Array<{ role: string; content: string }>,
+  ): string | undefined {
+    const latestUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user")
+      ?.content?.trim();
+
+    return latestUserMessage || undefined;
   }
 }

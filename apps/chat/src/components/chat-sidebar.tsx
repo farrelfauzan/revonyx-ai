@@ -53,7 +53,7 @@ export function AppSidebar() {
         <div className="flex">
           <button
             onClick={() => setTab("chats")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md cursor-pointer ${
               tab === "chats"
                 ? "text-sidebar-foreground bg-sidebar-accent"
                 : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
@@ -64,7 +64,7 @@ export function AppSidebar() {
           </button>
           <button
             onClick={() => setTab("knowledge")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md cursor-pointer ${
               tab === "knowledge"
                 ? "text-sidebar-foreground bg-sidebar-accent"
                 : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
@@ -98,13 +98,40 @@ export function AppSidebar() {
 function ChatsContent() {
   const { data, isLoading } = useConversations(50, 0);
   const deleteMutation = useDeleteConversation();
-  const { loadConversation, clearChat, conversationId } = useChatStore();
+  const {
+    loadConversation,
+    clearChat,
+    conversationId,
+    isStreaming,
+    streamingConversationId,
+    setConversationId,
+  } = useChatStore();
+
+  const handleDeleteConversation = async (id: string) => {
+    try {
+      await deleteMutation.mutateAsync(id);
+      if (conversationId === id) {
+        clearChat();
+      }
+    } catch {
+      // silently fail
+    }
+  };
 
   const handleLoadConversation = async (conv: ConversationSummary) => {
+    if (isStreaming && streamingConversationId === conv.id) {
+      setConversationId(conv.id);
+      return;
+    }
+
     try {
       const detail = await fetchConversation(conv.id);
       loadConversation(
-        detail.messages.map((m) => ({ role: m.role, content: m.content })),
+        detail.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          ...(m.document ? { document: m.document } : {}),
+        })),
         detail.id,
       );
     } catch {
@@ -165,7 +192,10 @@ function ChatsContent() {
                     </SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
-                      onClick={() => deleteMutation.mutate(conv.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteConversation(conv.id);
+                      }}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </SidebarMenuAction>

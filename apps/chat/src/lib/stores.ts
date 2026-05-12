@@ -1,27 +1,32 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useState, useEffect } from "react";
-import type { StreamStatus } from "./api";
+import type { StreamStatus, DocumentAttachment } from "./api";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  document?: DocumentAttachment;
 }
 
 interface ChatState {
   messages: Message[];
+  conversationMessages: Record<string, Message[]>;
   conversationId: string | null;
   isStreaming: boolean;
+  streamingConversationId: string | null;
   streamingContent: string;
   streamStatus: StreamStatus | null;
+  pendingDocument: DocumentAttachment | null;
   selectedModel: string | null;
   addMessage: (msg: Omit<Message, "id" | "createdAt">) => void;
-  setStreaming: (val: boolean) => void;
+  setStreaming: (val: boolean, conversationId?: string | null) => void;
   setStreamStatus: (status: StreamStatus | null) => void;
   appendStreamContent: (chunk: string) => void;
-  finalizeStream: (isJson?: boolean) => void;
+  setPendingDocument: (doc: DocumentAttachment) => void;
+  finalizeStream: (isJson?: boolean, commitMessage?: boolean) => void;
   setSelectedModel: (model: string | null) => void;
   setConversationId: (id: string | null) => void;
   loadConversation: (
@@ -35,25 +40,42 @@ export const useChatStore = create<ChatState>()(
   persist(
     (set, get) => ({
       messages: [],
+      conversationMessages: {},
       conversationId: null,
       isStreaming: false,
+      streamingConversationId: null,
       streamingContent: "",
       streamStatus: null,
+      pendingDocument: null,
       selectedModel: null,
 
       addMessage: (msg) =>
-        set((s) => ({
-          messages: [
-            ...s.messages,
-            { ...msg, id: crypto.randomUUID(), createdAt: Date.now() },
-          ],
-        })),
+        set((s) => {
+          const nextMessage = {
+            ...msg,
+            id: crypto.randomUUID(),
+            createdAt: Date.now(),
+          };
+          const nextMessages = [...s.messages, nextMessage];
 
-      setStreaming: (val) =>
+          return {
+            messages: nextMessages,
+            conversationMessages: s.conversationId
+              ? {
+                  ...s.conversationMessages,
+                  [s.conversationId]: nextMessages,
+                }
+              : s.conversationMessages,
+          };
+        }),
+
+      setStreaming: (val, conversationId) =>
         set({
           isStreaming: val,
+          streamingConversationId: val ? (conversationId ?? null) : null,
           streamingContent: val ? "" : get().streamingContent,
-          streamStatus: val ? null : null,
+          streamStatus: null,
+          pendingDocument: val ? null : get().pendingDocument,
         }),
 
       setStreamStatus: (status) => set({ streamStatus: status }),
@@ -61,10 +83,16 @@ export const useChatStore = create<ChatState>()(
       appendStreamContent: (chunk) =>
         set((s) => ({ streamingContent: s.streamingContent + chunk })),
 
-      finalizeStream: (isJson) => {
+      setPendingDocument: (doc) => set({ pendingDocument: doc }),
+
+      finalizeStream: (isJson, commitMessage = true) => {
         let content = get().streamingContent;
-        if (content) {
-          if (isJson) {
+        const document = get().pendingDocument;
+        if (content && commitMessage) {
+          if (document) {
+            // Replace streamed markdown with a short message when document is attached
+            content = `I've generated your ${document.format.toUpperCase()} document: **${document.filename}**`;
+          } else if (isJson) {
             // Pretty-print and wrap in markdown code block for nice rendering
             try {
               const parsed = JSON.parse(content);
@@ -73,34 +101,58 @@ export const useChatStore = create<ChatState>()(
               // If not valid JSON, render as-is
             }
           }
-          get().addMessage({ role: "assistant", content });
+          get().addMessage({
+            role: "assistant",
+            content,
+            ...(document ? { document } : {}),
+          });
         }
-        set({ isStreaming: false, streamingContent: "", streamStatus: null });
+        set({
+          isStreaming: false,
+          streamingConversationId: null,
+          streamingContent: "",
+          streamStatus: null,
+          pendingDocument: null,
+        });
       },
 
       setSelectedModel: (model) => set({ selectedModel: model }),
 
-      setConversationId: (id) => set({ conversationId: id }),
+      setConversationId: (id) => {
+        if (!id) {
+          set({ conversationId: null });
+          return;
+        }
+
+        const cachedMessages = get().conversationMessages[id];
+        set({
+          conversationId: id,
+          ...(cachedMessages ? { messages: cachedMessages } : {}),
+        });
+      },
 
       loadConversation: (msgs, conversationId) =>
-        set({
-          messages: msgs.map((m) => ({
+        set((s) => {
+          const mappedMessages = msgs.map((m) => ({
             ...m,
             id: crypto.randomUUID(),
             createdAt: Date.now(),
-          })),
-          conversationId,
-          streamingContent: "",
-          isStreaming: false,
+          }));
+
+          return {
+            messages: mappedMessages,
+            conversationId,
+            conversationMessages: {
+              ...s.conversationMessages,
+              [conversationId]: mappedMessages,
+            },
+          };
         }),
 
       clearChat: () =>
         set({
           messages: [],
           conversationId: null,
-          streamingContent: "",
-          streamStatus: null,
-          isStreaming: false,
         }),
     }),
     {

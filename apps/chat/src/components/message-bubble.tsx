@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./code-block";
 import { ResourceBadges } from "./resource-badges";
+import { DocumentCard } from "./document-card";
 
 export function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
@@ -53,6 +54,9 @@ export function MessageBubble({ message }: { message: Message }) {
             >
               {message.content}
             </ReactMarkdown>
+            {message.document && (
+              <DocumentCard document={message.document} />
+            )}
             <ResourceBadges content={message.content} />
           </div>
         </div>

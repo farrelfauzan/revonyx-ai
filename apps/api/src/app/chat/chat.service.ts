@@ -11,6 +11,7 @@ import { ProviderRouter } from "../providers/provider-router";
 import { UsageService } from "../usage/usage.service";
 import { PromptTuningService } from "./prompt-tuning.service";
 import { ConversationService } from "./conversation.service";
+import { DocumentService } from "../document/document.service";
 import { ChatCompletionRequest } from "./dto/chat-completion.dto";
 
 interface AuthenticatedUser {
@@ -30,6 +31,7 @@ export class ChatService {
     private readonly registry: ModelRegistryService,
     private readonly promptTuning: PromptTuningService,
     private readonly conversation: ConversationService,
+    private readonly documentService: DocumentService,
   ) {}
 
   async createCompletion(body: ChatCompletionRequest, user: AuthenticatedUser) {
@@ -72,7 +74,8 @@ export class ChatService {
     }
 
     // 4. Apply prompt tuning (inject system prompt)
-    const tunedMessages = await this.promptTuning.applyTuning(body.messages);
+    const { tunedMessages, matchedTemplate } =
+      await this.promptTuning.applyTuning(body.messages, user.id);
 
     // 5. Call provider
     let providerResponse;
@@ -122,39 +125,91 @@ export class ChatService {
     // 9. Save chat history only when store=true (web chat)
     let conversationId: string | undefined;
 
-    if (body.store) {
-      const assistantContent =
-        providerResponse.choices[0]?.message?.content ?? "";
+    // 10. Generate document if output_format detected
+    const assistantMarkdown =
+      providerResponse.choices[0]?.message?.content ?? "";
+    const outputFormat =
+      body.output_format || matchedTemplate?.outputFormat || null;
+    let document:
+      | {
+          format: string;
+          url: string;
+          filename: string;
+          expiresAt: string;
+          key: string;
+        }
+      | undefined;
 
+    if (outputFormat && assistantMarkdown) {
+      try {
+        document = await this.documentService.generateWithStorage(
+          assistantMarkdown,
+          outputFormat,
+          this.extractLatestUserPrompt(body.messages),
+        );
+      } catch (err: any) {
+        this.logger.error(
+          `Document generation failed: ${err.message}`,
+          err.stack,
+        );
+      }
+    }
+
+    if (body.store) {
       conversationId = await this.conversation.getOrCreateConversation(
         user.id,
         body.model,
         body.conversation_id,
       );
 
+      const assistantContent = document
+        ? this.buildDocumentResponseText(document)
+        : assistantMarkdown;
+
       this.conversation
-        .saveMessages(conversationId, body.messages, assistantContent)
-        .then(async () => {
-          // Generate title for new conversations (no conversation_id means new)
-          if (!body.conversation_id) {
-            const firstUserMsg = body.messages.find((m) => m.role === "user");
-            if (firstUserMsg) {
-              await this.conversation.generateTitle(
-                conversationId!,
-                firstUserMsg.content,
-              );
-            }
-          }
-        })
+        .saveMessages(
+          conversationId,
+          body.messages,
+          assistantContent,
+          document
+            ? {
+                format: document.format,
+                filename: document.filename,
+                key: document.key,
+              }
+            : undefined,
+        )
         .catch((err) => this.logger.error("Failed to save chat history", err));
+
+      // Generate title for new conversations (no conversation_id means new)
+      if (!body.conversation_id) {
+        const firstUserMsg = body.messages.find((m) => m.role === "user");
+        if (firstUserMsg) {
+          this.conversation
+            .generateTitle(conversationId, firstUserMsg.content)
+            .catch((err) =>
+              this.logger.error("Failed to generate conversation title", err),
+            );
+        }
+      }
     }
 
-    // 10. Return response
+    const documentResponse = document
+      ? {
+          format: document.format,
+          url: document.url,
+          filename: document.filename,
+          expiresAt: document.expiresAt,
+        }
+      : undefined;
+
+    // 11. Return response
     return {
       id: providerResponse.id,
       object: "chat.completion",
       model: body.model,
       ...(conversationId && { conversation_id: conversationId }),
+      ...(documentResponse && { document: documentResponse }),
       choices: providerResponse.choices,
       usage: {
         prompt_tokens: providerResponse.usage.prompt_tokens,
@@ -162,5 +217,23 @@ export class ChatService {
         total_tokens: providerResponse.usage.total_tokens,
       },
     };
+  }
+
+  private buildDocumentResponseText(document: {
+    format: string;
+    filename: string;
+  }): string {
+    return `I've generated your ${document.format.toUpperCase()} document: **${document.filename}**`;
+  }
+
+  private extractLatestUserPrompt(
+    messages: Array<{ role: string; content: string }>,
+  ): string | undefined {
+    const latestUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user")
+      ?.content?.trim();
+
+    return latestUserMessage || undefined;
   }
 }

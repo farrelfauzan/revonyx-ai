@@ -16,6 +16,7 @@ import { HealthModule } from "./health/health.module";
 import { ConfigRegistryModule } from "./config/config-registry.module";
 import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { PortalModule } from "./portal/portal.module";
+import { DocumentModule } from "./document/document.module";
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { PortalModule } from "./portal/portal.module";
     HealthModule,
     KnowledgeModule,
     PortalModule,
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

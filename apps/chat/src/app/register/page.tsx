@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/lib/stores";
-import { portalFetch } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { apiClient } from "@/lib/api-client";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -31,16 +31,16 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const res = await portalFetch<{
+      const res = await apiClient.post<{
         token: string;
         user: { email: string; balance: number };
       }>("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
+        email,
+        password,
       });
       setAuth(res.token, res.user.email, res.user.balance);
       // Link portal session to authenticated user
-      portalFetch("/chat/portal/link-session", { method: "POST" }).catch(() => {});
+      apiClient.post("/chat/portal/link-session").catch(() => {});
       queryClient.invalidateQueries({ queryKey: ["portal-usage"] });
       queryClient.invalidateQueries({ queryKey: ["portal-models"] });
       router.push("/");

@@ -9,6 +9,21 @@ interface ChatMessage {
   content: string;
 }
 
+interface MatchedTemplate {
+  slug: string;
+  name: string;
+  outputFormat: string | null;
+}
+
+interface TemplateWithContent extends MatchedTemplate {
+  content: string;
+}
+
+export interface TuningResult {
+  tunedMessages: ChatMessage[];
+  matchedTemplate: MatchedTemplate | null;
+}
+
 @Injectable()
 export class PromptTuningService {
   private readonly logger = new Logger(PromptTuningService.name);
@@ -60,17 +75,19 @@ export class PromptTuningService {
    * Builds the full system prompt by combining:
    * 1. Base system prompt (global, from SystemPrompt table)
    * 2. Category-specific template (from PromptTemplate table, matched by intent)
+   * Returns both the prompt string and the matched template (if any).
    */
-  private async buildSystemPrompt(
-    messages: ChatMessage[],
-  ): Promise<string | null> {
+  private async buildSystemPrompt(messages: ChatMessage[]): Promise<{
+    prompt: string | null;
+    matchedTemplate: TemplateWithContent | null;
+  }> {
     const [basePrompt, template] = await Promise.all([
       this.getSystemPrompt(),
       this.promptTemplate.classify(messages),
     ]);
 
     if (!basePrompt && !template) {
-      return null;
+      return { prompt: null, matchedTemplate: null };
     }
 
     const parts: string[] = [];
@@ -81,9 +98,24 @@ export class PromptTuningService {
 
     if (template) {
       parts.push(`[${template.name} Mode]\n${template.content}`);
+
+      if (template.outputFormat) {
+        parts.push(
+          `[Document Output Rules]\nYour next reply will be converted directly into a ${template.outputFormat.toUpperCase()} file.\n- Return only the actual document content in Markdown.\n- Do not write confirmation/meta text like "I've generated your document".\n- Do not explain what you are doing.\n- Start with a clear title heading and include concrete sections/tables/lists as needed.`,
+        );
+      }
     }
 
-    return parts.join("\n\n");
+    const matchedTemplate = template
+      ? {
+          slug: template.slug,
+          name: template.name,
+          outputFormat: template.outputFormat,
+          content: template.content,
+        }
+      : null;
+
+    return { prompt: parts.join("\n\n"), matchedTemplate };
   }
 
   /**
@@ -98,11 +130,15 @@ export class PromptTuningService {
   async applyTuning(
     messages: ChatMessage[],
     userId?: string,
-  ): Promise<ChatMessage[]> {
+  ): Promise<TuningResult> {
     // Extract the latest user message for RAG query
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
 
-    const [systemPrompt, ragChunks, userRagChunks] = await Promise.all([
+    const [
+      { prompt: systemPrompt, matchedTemplate },
+      ragChunks,
+      userRagChunks,
+    ] = await Promise.all([
       this.buildSystemPrompt(messages),
       lastUserMsg
         ? this.systemKnowledge.searchSystemKB(lastUserMsg.content)
@@ -144,7 +180,7 @@ export class PromptTuningService {
     }
 
     if (parts.length === 0) {
-      return messages;
+      return { tunedMessages: messages, matchedTemplate };
     }
 
     const fullPrompt = parts.join("\n\n");
@@ -165,6 +201,6 @@ export class PromptTuningService {
       });
     }
 
-    return result;
+    return { tunedMessages: result, matchedTemplate };
   }
 }
