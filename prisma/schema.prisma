@@ -21,6 +21,7 @@ model User {
   conversations Conversation[]
   knowledgeBases KnowledgeBase[]
   portalSessions PortalSession[]
+  memories      UserMemory[]
 
   @@map("users")
 }
@@ -188,4 +189,25 @@ model PortalSession {
   @@index([lastResetAt])
   @@index([ipAddress])
   @@map("portal_sessions")
+}
+
+model UserMemory {
+  id                   String    @id @default(uuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+  type                 String    // "interest" | "preference" | "context" | "exclusion"
+  content              String
+  confidence           Float     @default(0.75)
+  sourceMessageId      String?   @map("source_message_id")
+  sourceConversationId String?   @map("source_conversation_id")
+  lastConfirmedAt      DateTime  @default(now()) @db.Timestamptz()
+  expiresAt            DateTime? @db.Timestamptz()
+  isUserPinned         Boolean   @default(false) @map("is_user_pinned")
+  status               String    @default("active") // "active" | "archived" | "deleted"
+  createdAt            DateTime  @default(now()) @db.Timestamptz()
+  updatedAt            DateTime  @updatedAt @db.Timestamptz()
+
+  @@index([userId, status])
+  @@index([userId, type])
+  @@map("user_memories")
 }
