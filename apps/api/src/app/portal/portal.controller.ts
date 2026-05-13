@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -28,6 +29,8 @@ import { PromptTuningService } from "../chat/prompt-tuning.service";
 import { ConversationService } from "../chat/conversation.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
 import { DocumentService } from "../document/document.service";
+import { UserMemoryService } from "../memory/user-memory.service";
+import { MemoryExtractionService } from "../memory/memory-extraction.service";
 import {
   ChatCompletionRequest,
   ChatCompletionRequestSchema,
@@ -52,6 +55,8 @@ export class PortalController {
     private readonly conversation: ConversationService,
     private readonly knowledge: KnowledgeService,
     private readonly documentService: DocumentService,
+    private readonly memoryService: UserMemoryService,
+    private readonly memoryExtraction: MemoryExtractionService,
   ) {}
 
   @Post("completions")
@@ -340,6 +345,83 @@ export class PortalController {
     }
 
     await this.knowledge.deleteChunk(identity.user.id, id, chunkId);
+  }
+
+  // ─── User Memory Endpoints ───
+
+  @Get("memory")
+  @UseGuards(PortalGuard)
+  async listMemories(@Req() req: any) {
+    const identity: PortalIdentity = req.portalIdentity;
+    if (!identity.user) {
+      throw new BadRequestException("Authentication required");
+    }
+
+    const memories = await this.memoryService.listAll(identity.user.id);
+    return { data: memories };
+  }
+
+  @Patch("memory/:id")
+  @UseGuards(PortalGuard)
+  async updateMemory(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @Req() req: any,
+  ) {
+    const identity: PortalIdentity = req.portalIdentity;
+    if (!identity.user) {
+      throw new BadRequestException("Authentication required");
+    }
+
+    const { content, isUserPinned } = body as {
+      content?: string;
+      isUserPinned?: boolean;
+    };
+
+    if (content === undefined && isUserPinned === undefined) {
+      throw new BadRequestException(
+        "At least one field (content, isUserPinned) is required",
+      );
+    }
+
+    const updated = await this.memoryService.update(identity.user.id, id, {
+      content,
+      isUserPinned,
+    });
+
+    if (!updated) {
+      throw new NotFoundException("Memory not found");
+    }
+
+    return updated;
+  }
+
+  @Delete("memory/:id")
+  @UseGuards(PortalGuard)
+  @HttpCode(204)
+  async deleteMemory(@Param("id", ParseUUIDPipe) id: string, @Req() req: any) {
+    const identity: PortalIdentity = req.portalIdentity;
+    if (!identity.user) {
+      throw new BadRequestException("Authentication required");
+    }
+
+    const deleted = await this.memoryService.delete(identity.user.id, id);
+    if (!deleted) {
+      throw new NotFoundException("Memory not found");
+    }
+  }
+
+  @Post("memory/clear")
+  @UseGuards(PortalGuard)
+  @HttpCode(200)
+  async clearMemories(@Req() req: any) {
+    const identity: PortalIdentity = req.portalIdentity;
+    if (!identity.user) {
+      throw new BadRequestException("Authentication required");
+    }
+
+    const count = await this.memoryService.clearAll(identity.user.id);
+    return { cleared: count };
   }
 
   private async handleFreeRequest(
@@ -656,15 +738,21 @@ export class PortalController {
               : undefined,
           )
           .then(async () => {
-            if (!body.conversation_id) {
-              const firstUserMsg = body.messages.find((m) => m.role === "user");
-              if (firstUserMsg) {
-                await this.conversation.generateTitle(
-                  conversationId!,
-                  firstUserMsg.content,
-                );
-              }
+            if (!body.conversation_id && assistantContent) {
+              await this.conversation.generateTitle(
+                conversationId!,
+                assistantContent,
+              );
             }
+            console.log(
+              `Conversation ${conversationId} saved for user ${user.id}. Starting memory extraction...`,
+            );
+            // Fire-and-forget memory extraction after conversation is saved
+            this.memoryExtraction
+              .extract(user.id, conversationId!)
+              .catch((err) =>
+                this.logger.error("Memory extraction failed", err),
+              );
           })
           .catch((err) =>
             this.logger.error("Failed to save conversation", err),
