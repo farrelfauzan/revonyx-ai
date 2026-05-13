@@ -11,6 +11,7 @@ import { ProvidersModule } from "../providers/providers.module";
 import { UsageModule } from "../usage/usage.module";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
 import { DocumentModule } from "../document/document.module";
+import { MemoryModule } from "../memory/memory.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { DocumentModule } from "../document/document.module";
     UsageModule,
     KnowledgeModule,
     DocumentModule,
+    MemoryModule,
   ],
   controllers: [ChatController, ConversationController, ModelsController],
   providers: [
