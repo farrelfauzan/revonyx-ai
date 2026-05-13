@@ -239,3 +239,36 @@ export async function deleteKnowledgeChunk(
     `/chat/portal/knowledge/${knowledgeBaseId}/chunks/${chunkId}`,
   );
 }
+
+// ─── User Memory API ───
+
+export interface UserMemoryItem {
+  id: string;
+  type: "interest" | "preference" | "context" | "exclusion";
+  content: string;
+  confidence: number;
+  isUserPinned: boolean;
+  status: string;
+  lastConfirmedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchMemories(): Promise<{ data: UserMemoryItem[] }> {
+  return apiClient.get("/chat/portal/memory");
+}
+
+export async function updateMemory(
+  id: string,
+  data: { content?: string; isUserPinned?: boolean },
+): Promise<UserMemoryItem> {
+  return apiClient.patch(`/chat/portal/memory/${id}`, data);
+}
+
+export async function deleteMemory(id: string): Promise<void> {
+  await apiClient.delete(`/chat/portal/memory/${id}`);
+}
+
+export async function clearAllMemories(): Promise<{ cleared: number }> {
+  return apiClient.post("/chat/portal/memory/clear");
+}
