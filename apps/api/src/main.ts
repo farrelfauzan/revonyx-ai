@@ -43,6 +43,7 @@ async function bootstrap(): Promise<NestFastifyApplication> {
 
   // Security headers
   const fastifyInstance = app.getHttpAdapter().getInstance();
+  // @ts-expect-error - fastify version mismatch between @fastify/helmet and @nestjs/platform-fastify
   await fastifyInstance.register(helmet, {
     contentSecurityPolicy: false,
   });

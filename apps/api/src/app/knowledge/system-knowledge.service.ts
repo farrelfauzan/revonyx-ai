@@ -17,7 +17,7 @@ export class SystemKnowledgeService implements OnApplicationBootstrap {
   private readonly s3Client: S3Client;
   private readonly bucket: string;
   private readonly prefix: string;
-  private readonly cdnBaseUrl: string;
+  cdnBaseUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,

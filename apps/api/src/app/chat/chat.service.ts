@@ -181,16 +181,13 @@ export class ChatService {
         )
         .catch((err) => this.logger.error("Failed to save chat history", err));
 
-      // Generate title for new conversations (no conversation_id means new)
-      if (!body.conversation_id) {
-        const firstUserMsg = body.messages.find((m) => m.role === "user");
-        if (firstUserMsg) {
-          this.conversation
-            .generateTitle(conversationId, firstUserMsg.content)
-            .catch((err) =>
-              this.logger.error("Failed to generate conversation title", err),
-            );
-        }
+      // Generate title for new conversations based on first assistant response
+      if (!body.conversation_id && assistantContent) {
+        this.conversation
+          .generateTitle(conversationId, assistantContent)
+          .catch((err) =>
+            this.logger.error("Failed to generate conversation title", err),
+          );
       }
     }
 
