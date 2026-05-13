@@ -30,6 +30,8 @@ tags:
     description: Chat conversation history
   - name: Knowledge
     description: RAG knowledge base management
+  - name: Memory
+    description: User memory management (auto-extracted preferences and interests)
 
 paths:
   /auth/register:
@@ -729,6 +731,117 @@ paths:
         "401":
           description: Unauthorized
 
+  /chat/portal/memory:
+    get:
+      tags: [Memory]
+      summary: List all user memories
+      description: Returns all active memory items for the authenticated user. Memories are automatically extracted from conversations and include interests, preferences, context, and exclusions.
+      operationId: listMemories
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PortalSessionHeader"
+      responses:
+        "200":
+          description: List of user memory items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserMemory"
+        "400":
+          description: Authentication required
+        "401":
+          description: Unauthorized
+
+  /chat/portal/memory/{id}:
+    patch:
+      tags: [Memory]
+      summary: Update a memory item
+      description: Update the content or pin status of a specific memory item. At least one field (content or isUserPinned) must be provided.
+      operationId: updateMemory
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PortalSessionHeader"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Memory item ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryRequest"
+      responses:
+        "200":
+          description: Memory updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserMemory"
+        "400":
+          description: Validation error or authentication required
+        "404":
+          description: Memory not found
+
+    delete:
+      tags: [Memory]
+      summary: Delete a memory item
+      description: Permanently delete a specific memory item.
+      operationId: deleteMemory
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PortalSessionHeader"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Memory item ID
+      responses:
+        "204":
+          description: Memory deleted successfully
+        "400":
+          description: Authentication required
+        "404":
+          description: Memory not found
+
+  /chat/portal/memory/clear:
+    post:
+      tags: [Memory]
+      summary: Clear all memories
+      description: Delete all memory items for the authenticated user. Returns the count of cleared items.
+      operationId: clearMemories
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PortalSessionHeader"
+      responses:
+        "200":
+          description: All memories cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                    description: Number of memory items deleted
+                    example: 5
+        "400":
+          description: Authentication required
+
 components:
   securitySchemes:
     BearerAuth:
@@ -741,6 +854,15 @@ components:
       in: header
       name: Authorization
       description: "API key with Bearer prefix: `Bearer sk_live_*`"
+
+  parameters:
+    PortalSessionHeader:
+      name: X-Portal-Session
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Portal session token. Required for all portal endpoints.
 
   schemas:
     RegisterRequest:
@@ -1224,3 +1346,68 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    UserMemory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [interest, preference, context, exclusion]
+          description: Category of the memory item
+        content:
+          type: string
+          description: The extracted memory fact
+          example: Prefers concise answers with code examples first
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Confidence score from extraction (0-1)
+          example: 0.85
+        sourceConversationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Conversation the memory was extracted from
+        isUserPinned:
+          type: boolean
+          description: Whether the user has pinned this memory (pinned memories are never auto-archived)
+          default: false
+        status:
+          type: string
+          enum: [active, archived]
+          description: Current status of the memory
+        lastConfirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last time this memory was re-confirmed by a conversation
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiration date
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateMemoryRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Updated memory content
+        isUserPinned:
+          type: boolean
+          description: Pin or unpin the memory
+      description: At least one field must be provided
