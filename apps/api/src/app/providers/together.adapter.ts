@@ -107,18 +107,26 @@ export class TogetherAdapter implements ProviderAdapter {
       body.response_format = params.response_format;
     }
 
-    const response = await axios.post(
-      `${this.baseUrl}/chat/completions`,
-      body,
-      {
+    let response;
+    try {
+      response = await axios.post(`${this.baseUrl}/chat/completions`, body, {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
         },
         timeout: 60000,
         responseType: "stream",
-      },
-    );
+      });
+    } catch (err: any) {
+      // Log the upstream error body for debugging
+      const errBody = err.response?.data
+        ? await this.drainStream(err.response.data)
+        : err.message;
+      this.logger.error(
+        `Together stream error (${err.response?.status}): ${errBody}`,
+      );
+      throw err;
+    }
 
     const stream = response.data as NodeJS.ReadableStream;
     let buffer = "";
@@ -136,5 +144,13 @@ export class TogetherAdapter implements ProviderAdapter {
         yield payload;
       }
     }
+  }
+
+  private async drainStream(stream: NodeJS.ReadableStream): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString("utf-8");
   }
 }
