@@ -3,6 +3,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PromptTemplateService } from "./prompt-template.service";
 import { SystemKnowledgeService } from "../knowledge/system-knowledge.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
+import { UserMemoryService } from "../memory/user-memory.service";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -37,6 +38,7 @@ export class PromptTuningService {
     private readonly promptTemplate: PromptTemplateService,
     private readonly systemKnowledge: SystemKnowledgeService,
     private readonly knowledgeService: KnowledgeService,
+    private readonly userMemory: UserMemoryService,
   ) {}
 
   /**
@@ -138,6 +140,7 @@ export class PromptTuningService {
       { prompt: systemPrompt, matchedTemplate },
       ragChunks,
       userRagChunks,
+      userMemories,
     ] = await Promise.all([
       this.buildSystemPrompt(messages),
       lastUserMsg
@@ -150,6 +153,12 @@ export class PromptTuningService {
               this.logger.error(`Failed to search user KB: ${err.message}`);
               return [];
             })
+        : Promise.resolve([]),
+      userId
+        ? this.userMemory.getRelevantMemories(userId, 8).catch((err) => {
+            this.logger.error(`Failed to retrieve user memory: ${err.message}`);
+            return [];
+          })
         : Promise.resolve([]),
     ]);
 
@@ -179,6 +188,13 @@ export class PromptTuningService {
       }
     }
 
+    if (userMemories.length > 0) {
+      const memoryLines = this.formatMemoryContext(userMemories);
+      if (memoryLines) {
+        parts.push(memoryLines);
+      }
+    }
+
     if (parts.length === 0) {
       return { tunedMessages: messages, matchedTemplate };
     }
@@ -202,5 +218,41 @@ export class PromptTuningService {
     }
 
     return { tunedMessages: result, matchedTemplate };
+  }
+
+  private formatMemoryContext(
+    memories: { type: string; content: string }[],
+  ): string | null {
+    if (memories.length === 0) return null;
+
+    const grouped: Record<string, string[]> = {
+      interest: [],
+      preference: [],
+      context: [],
+      exclusion: [],
+    };
+
+    for (const mem of memories) {
+      if (grouped[mem.type]) {
+        grouped[mem.type].push(mem.content);
+      }
+    }
+
+    const lines: string[] = ["[User Memory Context]"];
+
+    if (grouped.interest.length > 0) {
+      lines.push(`- Interests: ${grouped.interest.join("; ")}`);
+    }
+    if (grouped.preference.length > 0) {
+      lines.push(`- Preferences: ${grouped.preference.join("; ")}`);
+    }
+    if (grouped.context.length > 0) {
+      lines.push(`- Context: ${grouped.context.join("; ")}`);
+    }
+    if (grouped.exclusion.length > 0) {
+      lines.push(`- Do-not-assume: ${grouped.exclusion.join("; ")}`);
+    }
+
+    return lines.length > 1 ? lines.join("\n") : null;
   }
 }

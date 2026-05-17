@@ -109,22 +109,24 @@ export class TogetherAdapter implements ProviderAdapter {
 
     let response;
     try {
-      response = await axios.post(`${this.baseUrl}/chat/completions`, body, {
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
+      response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        body,
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 60000,
+          responseType: "stream",
         },
-        timeout: 60000,
-        responseType: "stream",
-      });
+      );
     } catch (err: any) {
       // Log the upstream error body for debugging
       const errBody = err.response?.data
         ? await this.drainStream(err.response.data)
         : err.message;
-      this.logger.error(
-        `Together stream error (${err.response?.status}): ${errBody}`,
-      );
+      this.logger.error(`Together stream error (${err.response?.status}): ${errBody}`);
       throw err;
     }
 

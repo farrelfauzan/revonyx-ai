@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   MessageSquare,
   BookOpen,
+  Brain,
   Plus,
   Trash2,
   ChevronRight,
+  Pin,
+  Eraser,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +26,7 @@ import {
   SidebarMenuAction,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useChatStore, useAuthStore, useHydrated } from "@/lib/stores";
 import {
   useConversations,
@@ -34,11 +38,17 @@ import {
   useKnowledgeChunks,
   useDeleteKnowledgeChunk,
 } from "@/hooks/use-knowledge";
+import {
+  useMemories,
+  useDeleteMemory,
+  useUpdateMemory,
+  useClearMemories,
+} from "@/hooks/use-memory";
 import { fetchConversation } from "@/lib/api";
 import { KBUploadDialog } from "./kb-upload-dialog";
 import type { ConversationSummary } from "@/lib/api";
 
-type Tab = "chats" | "knowledge";
+type Tab = "chats" | "knowledge" | "memory";
 
 export function AppSidebar() {
   const [tab, setTab] = useState<Tab>("chats");
@@ -46,34 +56,65 @@ export function AppSidebar() {
   const { isLoggedIn } = useAuthStore();
   const loggedIn = hydrated && isLoggedIn();
 
+  const handleTabClick = useCallback(
+    (newTab: Tab, e: React.MouseEvent<HTMLButtonElement>) => {
+      setTab(newTab);
+      e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    },
+    []
+  );
+
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="border-b border-sidebar-border">
         {/* Tab switcher */}
-        <div className="flex">
-          <button
-            onClick={() => setTab("chats")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md cursor-pointer ${
-              tab === "chats"
-                ? "text-sidebar-foreground bg-sidebar-accent"
-                : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-            }`}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            Chats
-          </button>
-          <button
-            onClick={() => setTab("knowledge")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors rounded-md cursor-pointer ${
-              tab === "knowledge"
-                ? "text-sidebar-foreground bg-sidebar-accent"
-                : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-            }`}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            Knowledge
-          </button>
-        </div>
+        <ScrollArea
+          className="w-full whitespace-nowrap"
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.querySelector<HTMLElement>(
+                "[data-slot='scroll-area-viewport']"
+              )?.scrollBy({ left: e.deltaY });
+            }
+          }}
+        >
+          <div className="flex w-max min-w-full">
+            <button
+              onClick={(e) => handleTabClick("chats", e)}
+              className={`flex-1 min-w-20 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
+                tab === "chats"
+                  ? "text-sidebar-foreground bg-sidebar-accent"
+                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              Chats
+            </button>
+            <button
+              onClick={(e) => handleTabClick("knowledge", e)}
+              className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
+                tab === "knowledge"
+                  ? "text-sidebar-foreground bg-sidebar-accent"
+                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              }`}
+            >
+              <BookOpen className="h-3.5 w-3.5 shrink-0" />
+              Knowledge
+            </button>
+            <button
+              onClick={(e) => handleTabClick("memory", e)}
+              className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
+                tab === "memory"
+                  ? "text-sidebar-foreground bg-sidebar-accent"
+                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              }`}
+            >
+              <Brain className="h-3.5 w-3.5 shrink-0" />
+              Memory
+            </button>
+          </div>
+          <ScrollBar orientation="horizontal" className="h-1.5" />
+        </ScrollArea>
       </SidebarHeader>
 
       <SidebarContent>
@@ -85,8 +126,10 @@ export function AppSidebar() {
           </div>
         ) : tab === "chats" ? (
           <ChatsContent />
-        ) : (
+        ) : tab === "knowledge" ? (
           <KnowledgeContent />
+        ) : (
+          <MemoryContent />
         )}
       </SidebarContent>
     </Sidebar>
@@ -357,6 +400,130 @@ function KBChunksList({ knowledgeBaseId }: { knowledgeBaseId: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+// ─── Memory Content ───
+
+function MemoryContent() {
+  const { data, isLoading } = useMemories();
+  const deleteMutation = useDeleteMemory();
+  const updateMutation = useUpdateMemory();
+  const clearMutation = useClearMemories();
+
+  const memories = data?.data ?? [];
+
+  const memoryTypeLabel: Record<string, string> = {
+    interest: "Interest",
+    preference: "Preference",
+    context: "Context",
+    exclusion: "Exclusion",
+  };
+
+  return (
+    <>
+      {memories.length > 0 && (
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => clearMutation.mutate()}
+                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+              >
+                <Eraser className="h-4 w-4" />
+                <span>Clear All Memories</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+      )}
+
+      <SidebarSeparator />
+
+      {isLoading ? (
+        <SidebarGroup>
+          <SidebarMenu>
+            {[...Array(3)].map((_, i) => (
+              <SidebarMenuItem key={i}>
+                <div className="h-10 rounded-md bg-sidebar-accent/50 animate-pulse" />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+      ) : memories.length === 0 ? (
+        <SidebarGroup>
+          <div className="flex items-center justify-center py-8 px-4">
+            <p className="text-xs text-sidebar-foreground/60 text-center">
+              Revonix will automatically remember your interests and preferences
+              as you chat.
+            </p>
+          </div>
+        </SidebarGroup>
+      ) : (
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            What Revonix Remembers ({memories.length})
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <div className="space-y-1.5 px-2">
+              {memories.map((mem) => (
+                <div
+                  key={mem.id}
+                  className="rounded-md bg-sidebar-accent/30 px-2.5 py-2 group"
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-medium text-sidebar-foreground/50 uppercase">
+                        {memoryTypeLabel[mem.type] || mem.type}
+                      </span>
+                      <p className="text-xs text-sidebar-foreground mt-0.5 break-words">
+                        {mem.content}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0"
+                        title={mem.isUserPinned ? "Unpin" : "Pin"}
+                        onClick={() =>
+                          updateMutation.mutate({
+                            id: mem.id,
+                            data: { isUserPinned: !mem.isUserPinned },
+                          })
+                        }
+                      >
+                        <Pin
+                          className={`h-2.5 w-2.5 ${
+                            mem.isUserPinned
+                              ? "text-primary"
+                              : "text-sidebar-foreground/50"
+                          }`}
+                        />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0"
+                        title="Delete"
+                        onClick={() => deleteMutation.mutate(mem.id)}
+                      >
+                        <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                  {mem.isUserPinned && (
+                    <span className="text-[9px] text-primary/70 mt-0.5 inline-block">
+                      Pinned
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      )}
+    </>
   );
 }
 

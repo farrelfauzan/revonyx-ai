@@ -94,11 +94,11 @@ export class ConversationService {
 
   /**
    * Generates a short title for the conversation using the AI model,
-   * based on the first user message. Runs async (fire-and-forget).
+   * based on the first assistant response. Runs async (fire-and-forget).
    */
   async generateTitle(
     conversationId: string,
-    firstUserMessage: string,
+    firstAssistantResponse: string,
   ): Promise<void> {
     try {
       // Pick the cheapest available model for title generation
@@ -119,11 +119,11 @@ export class ConversationService {
           {
             role: "system",
             content:
-              "Generate a short, concise title (max 6 words) for a conversation that starts with the following message. Return ONLY the title text, nothing else. No quotes, no punctuation at the end.",
+              "Generate a short, concise title (max 6 words) for a conversation based on the following AI assistant response. Return ONLY the title text, nothing else. No quotes, no punctuation at the end.",
           },
           {
             role: "user",
-            content: firstUserMessage,
+            content: firstAssistantResponse.slice(0, 500),
           },
         ],
         temperature: 0.3,
