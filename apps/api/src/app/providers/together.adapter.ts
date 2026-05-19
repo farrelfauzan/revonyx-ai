@@ -54,37 +54,69 @@ export class TogetherAdapter implements ProviderAdapter {
       body.response_format = params.response_format;
     }
 
-    const response = await axios.post(
-      `${this.baseUrl}/chat/completions`,
-      body,
-      {
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
-      },
-    );
+    if (params.tools && params.tools.length > 0) {
+      body.tools = params.tools;
+      body.tool_choice = params.tool_choice ?? "auto";
+    }
 
-    const data = response.data;
+    // Retry with exponential backoff for transient errors
+    const maxRetries = 3;
+    let lastError: any;
 
-    return {
-      id: data.id,
-      model: params.model,
-      choices: data.choices.map((c: any, i: number) => ({
-        index: i,
-        message: {
-          role: c.message.role,
-          content: c.message.content,
-        },
-        finish_reason: c.finish_reason,
-      })),
-      usage: {
-        prompt_tokens: data.usage.prompt_tokens,
-        completion_tokens: data.usage.completion_tokens,
-        total_tokens: data.usage.total_tokens,
-      },
-    };
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await axios.post(
+          `${this.baseUrl}/chat/completions`,
+          body,
+          {
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 90000,
+          },
+        );
+
+        const data = response.data;
+
+        return {
+          id: data.id,
+          model: params.model,
+          choices: data.choices.map((c: any, i: number) => ({
+            index: i,
+            message: {
+              role: c.message.role,
+              content: c.message.content,
+              ...(c.message.tool_calls && { tool_calls: c.message.tool_calls }),
+            },
+            finish_reason: c.finish_reason,
+          })),
+          usage: {
+            prompt_tokens: data.usage.prompt_tokens,
+            completion_tokens: data.usage.completion_tokens,
+            total_tokens: data.usage.total_tokens,
+          },
+        };
+      } catch (err: any) {
+        lastError = err;
+        const status = err.response?.status;
+
+        // Only retry on transient errors (500, 502, 503, 429)
+        if (status && [500, 502, 503, 429].includes(status)) {
+          const delay = Math.min(1000 * 2 ** attempt, 8000);
+          this.logger.warn(
+            `[Together chat] Attempt ${attempt + 1}/${maxRetries} failed (${status}). Retrying in ${delay}ms...`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        // Non-retryable error
+        throw err;
+      }
+    }
+
+    throw lastError;
   }
 
   async *chatStream(
@@ -107,33 +139,57 @@ export class TogetherAdapter implements ProviderAdapter {
       body.response_format = params.response_format;
     }
 
+    if (params.tools && params.tools.length > 0) {
+      body.tools = params.tools;
+      body.tool_choice = params.tool_choice ?? "auto";
+    }
+
+    this.logger.log(
+      `[Together chatStream] model=${params.providerId} tool_choice=${JSON.stringify(body.tool_choice)} tools=${(params.tools || []).length}`,
+    );
+
     let response;
     try {
-      response = await axios.post(
-        `${this.baseUrl}/chat/completions`,
-        body,
-        {
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 60000,
-          responseType: "stream",
+      response = await axios.post(`${this.baseUrl}/chat/completions`, body, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
         },
-      );
+        timeout: 120000,
+        responseType: "stream",
+      });
     } catch (err: any) {
       // Log the upstream error body for debugging
       const errBody = err.response?.data
         ? await this.drainStream(err.response.data)
         : err.message;
-      this.logger.error(`Together stream error (${err.response?.status}): ${errBody}`);
+      this.logger.error(
+        `Together stream error (${err.response?.status}): ${errBody}`,
+      );
       throw err;
     }
 
     const stream = response.data as NodeJS.ReadableStream;
     let buffer = "";
+    let chunkCount = 0;
+
+    this.logger.log(
+      `[Together chatStream] Stream connected, waiting for data...`,
+    );
+
+    stream.on("error", (err: any) => {
+      this.logger.error(
+        `[Together chatStream] Stream error event: ${err.message}`,
+      );
+    });
 
     for await (const chunk of stream) {
+      chunkCount++;
+      if (chunkCount === 1) {
+        this.logger.log(
+          `[Together chatStream] First chunk received (${chunk.toString().length} bytes)`,
+        );
+      }
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -142,10 +198,19 @@ export class TogetherAdapter implements ProviderAdapter {
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith("data: ")) continue;
         const payload = trimmed.slice(6);
-        if (payload === "[DONE]") return;
+        if (payload === "[DONE]") {
+          this.logger.log(
+            `[Together chatStream] Stream complete (${chunkCount} chunks)`,
+          );
+          return;
+        }
         yield payload;
       }
     }
+
+    this.logger.log(
+      `[Together chatStream] Stream ended without [DONE] (${chunkCount} chunks)`,
+    );
   }
 
   private async drainStream(stream: NodeJS.ReadableStream): Promise<string> {

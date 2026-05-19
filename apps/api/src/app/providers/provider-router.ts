@@ -23,11 +23,15 @@ export class ProviderRouter {
       throw new Error(`No adapter found for provider: ${provider}`);
     }
 
+    this.logger.log(
+      `[chat] provider=${provider} model=${params.providerId} messages=${params.messages?.length} tools=${params.tools?.length ?? 0}`,
+    );
+
     try {
       return await adapter.chat(params);
     } catch (error: any) {
       this.logger.error(
-        `Provider ${provider} failed: ${error.message}`,
+        `Provider ${provider} failed: ${error.message} status=${error.response?.status}`,
         error.stack,
       );
 
@@ -48,6 +52,10 @@ export class ProviderRouter {
     if (!adapter.chatStream) {
       throw new Error(`Provider ${provider} does not support streaming`);
     }
+
+    this.logger.log(
+      `[chatStream] provider=${provider} model=${params.providerId} messages=${params.messages?.length} tools=${params.tools?.length ?? 0} tool_choice=${JSON.stringify(params.tool_choice)} toolNames=[${(params.tools || []).map((t: any) => t.function?.name).join(",")}]`,
+    );
 
     yield* adapter.chatStream(params);
   }

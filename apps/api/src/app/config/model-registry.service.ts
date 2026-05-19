@@ -68,6 +68,22 @@ export class ModelRegistryService implements OnModuleInit {
     return this.models.get(slug);
   }
 
+  async getModelByProviderId(
+    providerId: string,
+  ): Promise<ModelConfig | undefined> {
+    await this.ensureFresh();
+    for (const model of this.models.values()) {
+      if (model.providerId === providerId) return model;
+    }
+    return undefined;
+  }
+
+  async resolveModel(identifier: string): Promise<ModelConfig | undefined> {
+    const bySlug = await this.getModel(identifier);
+    if (bySlug) return bySlug;
+    return this.getModelByProviderId(identifier);
+  }
+
   async getAllModels(): Promise<ModelConfig[]> {
     await this.ensureFresh();
     return [...this.models.values()];
