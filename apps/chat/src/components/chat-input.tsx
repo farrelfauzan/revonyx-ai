@@ -222,7 +222,7 @@ export function ChatInput() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Revonyx AI..."
+            placeholder="Message Revonix AI..."
             className="w-full resize-none bg-transparent px-4 pt-3.5 pb-12 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none min-h-13 max-h-50"
             rows={1}
             disabled={isStreaming}
@@ -314,7 +314,7 @@ export function ChatInput() {
         ) : null}
 
         <p className="text-center text-[11px] text-muted-foreground/50 mt-2.5">
-          Revonyx AI can make mistakes. Verify important information.
+          Revonix AI can make mistakes. Verify important information.
         </p>
       </div>
     </motion.div>

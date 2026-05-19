@@ -27,7 +27,7 @@ export class SystemKnowledgeService implements OnApplicationBootstrap {
     this.bucket = this.configService.getOrThrow<string>("S3_BUCKET");
     this.prefix =
       this.configService.get<string>("SYSTEM_KB_S3_PREFIX") ??
-      "revonyx-rag-docs";
+      "revonix-rag-docs";
     this.cdnBaseUrl = this.configService.get<string>("SYSTEM_KB_CDN_URL") ?? "";
 
     this.s3Client = new S3Client({
@@ -107,8 +107,8 @@ export class SystemKnowledgeService implements OnApplicationBootstrap {
 
     return this.prisma.knowledgeBase.create({
       data: {
-        name: "Revonyx AI System Knowledge",
-        description: "System knowledge base for Revonyx AI product information",
+        name: "Revonix AI System Knowledge",
+        description: "System knowledge base for Revonix AI product information",
         isSystem: true,
         active: true,
       },

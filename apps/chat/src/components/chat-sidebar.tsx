@@ -1,18 +1,15 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   MessageSquare,
   BookOpen,
   Brain,
   Plus,
   Trash2,
-  ChevronRight,
-  Pin,
-  Eraser,
+  Bot,
+  Sparkles,
+  PanelLeft,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -24,112 +21,96 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuAction,
-  SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useChatStore, useAuthStore, useHydrated } from "@/lib/stores";
 import {
   useConversations,
   useDeleteConversation,
 } from "@/hooks/use-conversations";
-import {
-  useKnowledgeBases,
-  useDeleteKnowledgeBase,
-  useKnowledgeChunks,
-  useDeleteKnowledgeChunk,
-} from "@/hooks/use-knowledge";
-import {
-  useMemories,
-  useDeleteMemory,
-  useUpdateMemory,
-  useClearMemories,
-} from "@/hooks/use-memory";
 import { fetchConversation } from "@/lib/api";
-import { KBUploadDialog } from "./kb-upload-dialog";
 import type { ConversationSummary } from "@/lib/api";
 
-type Tab = "chats" | "knowledge" | "memory";
-
 export function AppSidebar() {
-  const [tab, setTab] = useState<Tab>("chats");
   const hydrated = useHydrated();
   const { isLoggedIn } = useAuthStore();
   const loggedIn = hydrated && isLoggedIn();
-
-  const handleTabClick = useCallback(
-    (newTab: Tab, e: React.MouseEvent<HTMLButtonElement>) => {
-      setTab(newTab);
-      e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    },
-    []
-  );
+  const { clearChat } = useChatStore();
+  const { toggleSidebar } = useSidebar();
 
   return (
-    <Sidebar collapsible="offcanvas">
+    <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
-        {/* Tab switcher */}
-        <ScrollArea
-          className="w-full whitespace-nowrap"
-          onWheel={(e) => {
-            if (e.deltaY !== 0) {
-              e.currentTarget.querySelector<HTMLElement>(
-                "[data-slot='scroll-area-viewport']"
-              )?.scrollBy({ left: e.deltaY });
-            }
-          }}
-        >
-          <div className="flex w-max min-w-full">
-            <button
-              onClick={(e) => handleTabClick("chats", e)}
-              className={`flex-1 min-w-20 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
-                tab === "chats"
-                  ? "text-sidebar-foreground bg-sidebar-accent"
-                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-              }`}
-            >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              Chats
-            </button>
-            <button
-              onClick={(e) => handleTabClick("knowledge", e)}
-              className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
-                tab === "knowledge"
-                  ? "text-sidebar-foreground bg-sidebar-accent"
-                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-              }`}
-            >
-              <BookOpen className="h-3.5 w-3.5 shrink-0" />
-              Knowledge
-            </button>
-            <button
-              onClick={(e) => handleTabClick("memory", e)}
-              className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer ${
-                tab === "memory"
-                  ? "text-sidebar-foreground bg-sidebar-accent"
-                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-              }`}
-            >
-              <Brain className="h-3.5 w-3.5 shrink-0" />
-              Memory
-            </button>
+        <div className="flex items-center justify-between px-2 py-1 group-data-[collapsible=icon]:group-data-[state=collapsed]:justify-center">
+          {/* Collapsed: logo with hover-to-toggle */}
+          <button
+            onClick={toggleSidebar}
+            className="items-center gap-2 group/logo relative hidden group-data-[collapsible=icon]:group-data-[state=collapsed]:flex"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-purple-600 group-hover/logo:from-indigo-600 group-hover/logo:to-purple-700 transition-all">
+              <Sparkles className="h-3.5 w-3.5 text-white group-hover/logo:hidden" />
+              <PanelLeft className="h-3.5 w-3.5 text-white hidden group-hover/logo:block" />
+            </div>
+          </button>
+          {/* Expanded: logo + toggle button */}
+          <div className="flex items-center gap-2 group-data-[collapsible=icon]:group-data-[state=collapsed]:hidden">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-purple-600">
+              <Sparkles className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span className="font-semibold text-sm">Revonix AI</span>
           </div>
-          <ScrollBar orientation="horizontal" className="h-1.5" />
-        </ScrollArea>
+          <button
+            onClick={toggleSidebar}
+            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-sidebar-accent transition-colors group-data-[collapsible=icon]:group-data-[state=collapsed]:hidden"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => { clearChat(); }} className="gap-2 hover:bg-secondary/60 cursor-pointer">
+              <Plus className="h-4 w-4" />
+              <span>New Chat</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <Link href="/knowledge">
+              <SidebarMenuButton className="gap-2 cursor-pointer">
+                <BookOpen className="h-4 w-4" />
+                <span>Knowledge</span>
+              </SidebarMenuButton>
+            </Link>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <Link href="/memory">
+              <SidebarMenuButton className="gap-2 cursor-pointer">
+                <Brain className="h-4 w-4" />
+                <span>Memory</span>
+              </SidebarMenuButton>
+            </Link>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <Link href="/agents">
+              <SidebarMenuButton className="gap-2 cursor-pointer">
+                <Bot className="h-4 w-4" />
+                <span>AI Agents</span>
+              </SidebarMenuButton>
+            </Link>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="group-data-[collapsible=icon]:group-data-[state=collapsed]:hidden">
         {!loggedIn ? (
           <div className="flex items-center justify-center h-full px-4">
             <p className="text-xs text-sidebar-foreground/60 text-center">
               Sign in and top up to access chat history and knowledge base.
             </p>
           </div>
-        ) : tab === "chats" ? (
-          <ChatsContent />
-        ) : tab === "knowledge" ? (
-          <KnowledgeContent />
         ) : (
-          <MemoryContent />
+          <ChatsContent />
         )}
       </SidebarContent>
     </Sidebar>
@@ -139,6 +120,8 @@ export function AppSidebar() {
 // ─── Chats Content ───
 
 function ChatsContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const { data, isLoading } = useConversations(50, 0);
   const deleteMutation = useDeleteConversation();
   const {
@@ -164,6 +147,9 @@ function ChatsContent() {
   const handleLoadConversation = async (conv: ConversationSummary) => {
     if (isStreaming && streamingConversationId === conv.id) {
       setConversationId(conv.id);
+      if (pathname !== "/") {
+        router.push("/");
+      }
       return;
     }
 
@@ -177,6 +163,9 @@ function ChatsContent() {
         })),
         detail.id,
       );
+      if (pathname !== "/") {
+        router.push("/");
+      }
     } catch {
       // silently fail
     }
@@ -186,19 +175,6 @@ function ChatsContent() {
 
   return (
     <>
-      <SidebarGroup>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={clearChat} className="gap-2 hover:bg-secondary/60 cursor-pointer">
-              <Plus className="h-4 w-4" />
-              <span>New Chat</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarGroup>
-
-      <SidebarSeparator />
-
       {isLoading ? (
         <SidebarGroup>
           <SidebarMenu>
@@ -248,280 +224,6 @@ function ChatsContent() {
             </SidebarGroupContent>
           </SidebarGroup>
         ))
-      )}
-    </>
-  );
-}
-
-// ─── Knowledge Content ───
-
-function KnowledgeContent() {
-  const [showUpload, setShowUpload] = useState(false);
-  const [expandedKB, setExpandedKB] = useState<string | null>(null);
-  const { data: knowledgeBases, isLoading } = useKnowledgeBases();
-  const deleteMutation = useDeleteKnowledgeBase();
-
-  return (
-    <>
-      <SidebarGroup>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => setShowUpload(true)}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Knowledge Base</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarGroup>
-
-      <SidebarSeparator />
-
-      {isLoading ? (
-        <SidebarGroup>
-          <SidebarMenu>
-            {[...Array(3)].map((_, i) => (
-              <SidebarMenuItem key={i}>
-                <div className="h-10 rounded-md bg-sidebar-accent/50 animate-pulse" />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-      ) : !knowledgeBases || knowledgeBases.length === 0 ? (
-        <SidebarGroup>
-          <div className="flex items-center justify-center py-8 px-4">
-            <p className="text-xs text-sidebar-foreground/60 text-center">
-              Upload .md files to give the AI context from your own documents.
-            </p>
-          </div>
-        </SidebarGroup>
-      ) : (
-        <SidebarGroup>
-          <SidebarGroupLabel>Your Knowledge Bases</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {knowledgeBases.map((kb) => (
-                <SidebarMenuItem key={kb.id}>
-                  <SidebarMenuButton
-                    onClick={() =>
-                      setExpandedKB(expandedKB === kb.id ? null : kb.id)
-                    }
-                  >
-                    <ChevronRight
-                      className={`h-4 w-4 transition-transform ${
-                        expandedKB === kb.id ? "rotate-90" : ""
-                      }`}
-                    />
-                    <span className="flex-1 truncate">{kb.name}</span>
-                    <span className="text-[10px] text-sidebar-foreground/50">
-                      {kb._count.chunks}
-                    </span>
-                  </SidebarMenuButton>
-                  <SidebarMenuAction
-                    showOnHover
-                    onClick={() => deleteMutation.mutate(kb.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </SidebarMenuAction>
-
-                  <AnimatePresence>
-                    {expandedKB === kb.id && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <KBChunksList knowledgeBaseId={kb.id} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      )}
-
-      <KBUploadDialog open={showUpload} onClose={() => setShowUpload(false)} />
-    </>
-  );
-}
-
-// ─── KB Chunks List (Expanded) ───
-
-function KBChunksList({ knowledgeBaseId }: { knowledgeBaseId: string }) {
-  const { data, isLoading } = useKnowledgeChunks(knowledgeBaseId);
-  const deleteMutation = useDeleteKnowledgeChunk();
-
-  if (isLoading) {
-    return (
-      <div className="px-4 py-2 text-[10px] text-sidebar-foreground/60">
-        Loading...
-      </div>
-    );
-  }
-
-  if (!data?.chunks?.length) {
-    return (
-      <div className="px-4 py-2 text-[10px] text-sidebar-foreground/60">
-        No chunks
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4 pb-2 space-y-1 max-h-40 overflow-y-auto">
-      {data.chunks.slice(0, 10).map((chunk) => (
-        <div
-          key={chunk.id}
-          className="flex items-start gap-1.5 rounded bg-sidebar-accent/30 px-2 py-1.5"
-        >
-          <p className="text-[10px] text-sidebar-foreground/60 flex-1 line-clamp-2">
-            {chunk.content.slice(0, 100)}...
-          </p>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5 shrink-0"
-            onClick={() =>
-              deleteMutation.mutate({ knowledgeBaseId, chunkId: chunk.id })
-            }
-          >
-            <Trash2 className="h-2.5 w-2.5 text-destructive" />
-          </Button>
-        </div>
-      ))}
-      {data.total > 10 && (
-        <p className="text-[10px] text-sidebar-foreground/60 text-center">
-          +{data.total - 10} more chunks
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ─── Memory Content ───
-
-function MemoryContent() {
-  const { data, isLoading } = useMemories();
-  const deleteMutation = useDeleteMemory();
-  const updateMutation = useUpdateMemory();
-  const clearMutation = useClearMemories();
-
-  const memories = data?.data ?? [];
-
-  const memoryTypeLabel: Record<string, string> = {
-    interest: "Interest",
-    preference: "Preference",
-    context: "Context",
-    exclusion: "Exclusion",
-  };
-
-  return (
-    <>
-      {memories.length > 0 && (
-        <SidebarGroup>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={() => clearMutation.mutate()}
-                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
-              >
-                <Eraser className="h-4 w-4" />
-                <span>Clear All Memories</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
-      )}
-
-      <SidebarSeparator />
-
-      {isLoading ? (
-        <SidebarGroup>
-          <SidebarMenu>
-            {[...Array(3)].map((_, i) => (
-              <SidebarMenuItem key={i}>
-                <div className="h-10 rounded-md bg-sidebar-accent/50 animate-pulse" />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-      ) : memories.length === 0 ? (
-        <SidebarGroup>
-          <div className="flex items-center justify-center py-8 px-4">
-            <p className="text-xs text-sidebar-foreground/60 text-center">
-              Revonix will automatically remember your interests and preferences
-              as you chat.
-            </p>
-          </div>
-        </SidebarGroup>
-      ) : (
-        <SidebarGroup>
-          <SidebarGroupLabel>
-            What Revonix Remembers ({memories.length})
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <div className="space-y-1.5 px-2">
-              {memories.map((mem) => (
-                <div
-                  key={mem.id}
-                  className="rounded-md bg-sidebar-accent/30 px-2.5 py-2 group"
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[10px] font-medium text-sidebar-foreground/50 uppercase">
-                        {memoryTypeLabel[mem.type] || mem.type}
-                      </span>
-                      <p className="text-xs text-sidebar-foreground mt-0.5 break-words">
-                        {mem.content}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 shrink-0"
-                        title={mem.isUserPinned ? "Unpin" : "Pin"}
-                        onClick={() =>
-                          updateMutation.mutate({
-                            id: mem.id,
-                            data: { isUserPinned: !mem.isUserPinned },
-                          })
-                        }
-                      >
-                        <Pin
-                          className={`h-2.5 w-2.5 ${
-                            mem.isUserPinned
-                              ? "text-primary"
-                              : "text-sidebar-foreground/50"
-                          }`}
-                        />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 shrink-0"
-                        title="Delete"
-                        onClick={() => deleteMutation.mutate(mem.id)}
-                      >
-                        <Trash2 className="h-2.5 w-2.5 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                  {mem.isUserPinned && (
-                    <span className="text-[9px] text-primary/70 mt-0.5 inline-block">
-                      Pinned
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </SidebarGroupContent>
-        </SidebarGroup>
       )}
     </>
   );

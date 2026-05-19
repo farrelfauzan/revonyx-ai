@@ -33,6 +33,8 @@ export interface ChatRequest {
   max_tokens?: number;
   response_format?: ResponseFormat;
   reasoning_effort?: "low" | "medium" | "high";
+  tools?: any[];
+  tool_choice?: string;
 }
 
 export interface ChatUsage {
