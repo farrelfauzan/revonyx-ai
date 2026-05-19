@@ -17,6 +17,8 @@ import { ConfigRegistryModule } from "./config/config-registry.module";
 import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { PortalModule } from "./portal/portal.module";
 import { DocumentModule } from "./document/document.module";
+import { AgentModule } from "./agent/agent.module";
+import { ChannelModule } from "./channel/channel.module";
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { DocumentModule } from "./document/document.module";
     KnowledgeModule,
     PortalModule,
     DocumentModule,
+    AgentModule,
+    ChannelModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
