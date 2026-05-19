@@ -4,8 +4,7 @@ import { usePortalUsage } from "@/hooks/use-portal";
 import { useAuthStore, useHydrated } from "@/lib/stores";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { LogIn, LogOut, Sparkles } from "lucide-react";
+import { LogIn, LogOut } from "lucide-react";
 import Link from "next/link";
 
 export function ChatHeader() {
@@ -18,15 +17,7 @@ export function ChatHeader() {
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/40">
       <div className="flex items-center justify-between px-4 h-14">
-        <div className="flex items-center gap-3">
-          {hydrated && isLoggedIn() && <SidebarTrigger />}
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-purple-600">
-              <Sparkles className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span className="font-semibold text-sm">Revonyx AI</span>
-          </div>
-        </div>
+        <div className="flex items-center gap-3" />
 
         <div className="flex items-center gap-2">
           {/* Usage pill */}
