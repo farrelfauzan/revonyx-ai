@@ -1,4 +1,4 @@
-# Revonyx AI
+# Revonix AI
 
 A unified AI platform that provides access to multiple LLM models through a single API and chat portal, with pay-as-you-go credit-based billing.
 
@@ -6,7 +6,7 @@ A unified AI platform that provides access to multiple LLM models through a sing
 
 ## Overview
 
-Revonyx AI solves the complexity of working with multiple AI providers by offering:
+Revonix AI solves the complexity of working with multiple AI providers by offering:
 
 - **Unified API** — Single endpoint compatible with OpenAI's format, routing to models like LLaMA, Qwen, and more via Together AI
 - **Chat Portal** — Web-based chat interface with free tier (20 requests/day) and paid tier with model selection
@@ -57,8 +57,8 @@ docs/           # Documentation
 
 1. **Clone the repo**
    ```bash
-   git clone git@github.com:farrelfauzan/revonyx-ai.git
-   cd revonyx-ai
+   git clone git@github.com:farrelfauzan/revonix-ai.git
+   cd revonix-ai
    ```
 
 2. **Install dependencies**
