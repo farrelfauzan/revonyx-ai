@@ -59,7 +59,7 @@ export function AppSidebar() {
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-purple-600">
               <Sparkles className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="font-semibold text-sm">Revonix AI</span>
+            <span className="font-semibold text-sm">Renovix AI</span>
           </div>
           <button
             onClick={toggleSidebar}

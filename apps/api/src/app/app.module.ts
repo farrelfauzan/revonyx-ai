@@ -19,6 +19,8 @@ import { PortalModule } from "./portal/portal.module";
 import { DocumentModule } from "./document/document.module";
 import { AgentModule } from "./agent/agent.module";
 import { ChannelModule } from "./channel/channel.module";
+import { EmailModule } from "./email/email.module";
+import { WorkspaceModule } from "./workspace/workspace.module";
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { ChannelModule } from "./channel/channel.module";
     DocumentModule,
     AgentModule,
     ChannelModule,
+    EmailModule,
+    WorkspaceModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

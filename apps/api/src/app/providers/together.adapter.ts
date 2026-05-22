@@ -73,11 +73,18 @@ export class TogetherAdapter implements ProviderAdapter {
               Authorization: `Bearer ${this.apiKey}`,
               "Content-Type": "application/json",
             },
-            timeout: 90000,
+            timeout: 180000,
           },
         );
 
         const data = response.data;
+
+        // Debug: log raw message for short responses
+        if (params.max_tokens && params.max_tokens <= 50) {
+          this.logger.log(
+            `[debug] raw choice: ${JSON.stringify(data.choices?.[0]?.message)}`,
+          );
+        }
 
         return {
           id: data.id,

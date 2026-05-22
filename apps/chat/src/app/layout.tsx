@@ -2,8 +2,8 @@ import './global.css';
 import { Providers } from "@/components/providers";
 
 export const metadata = {
-  title: "Revonix AI Chat",
-  description: "AI Chat Portal powered by Revonix AI",
+  title: "Renovix AI Chat",
+  description: "AI Chat Portal powered by Renovix AI",
 };
 
 export default function RootLayout({

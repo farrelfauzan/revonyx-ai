@@ -1,4 +1,4 @@
-# AI Agent Portal Strategy (Revonix AI)
+# AI Agent Portal Strategy (Renovix AI)
 
 ## Overview
 
@@ -52,10 +52,12 @@ In the future, these agents will integrate with **GOWA** (self-hosted WhatsApp g
 
 ## Access & Eligibility
 
-| Tier | Access |
-|------|--------|
-| Free | **No access** — Agent Portal is not available. Users see an upgrade prompt. |
-| Subscribed | Full access: create unlimited agents & sub-agents, deploy to channels, agent chat, integrations, GOWA |
+| Tier | Access | Max workspace users |
+|------|--------|---------------------|
+| Free | **No access** — Agent Portal is not available. Users see an upgrade prompt. | 0 |
+| Starter | Personal agents + workspace access | 3 users |
+| Pro | Full agent portal features for growing teams | 10 users |
+| Enterprise | Full features with higher limits and enterprise controls | Custom contract |
 
 - **AI Agents is a subscription-only feature** — no free tier, no trial messages.
 - Users without an active subscription cannot access the Agent Portal (UI gated + API enforced).
@@ -63,7 +65,33 @@ In the future, these agents will integrate with **GOWA** (self-hosted WhatsApp g
 - Agent usage consumes credits on top of the subscription (same billing flow as chat).
 - Each subscribed user can own **multiple agents** with different specializations.
 - Agents can delegate tasks to **sub-agents** (child agents with scoped capabilities).
+- Workspace membership capacity must be capped by subscription tier.
+- In the first version, the workspace owner's active `AgentSubscription` tier determines the workspace member limit.
 - API endpoints return `403 Forbidden` with a clear upgrade message for non-subscribed users.
+
+### Workspace Seat Limit Strategy
+
+Until a dedicated workspace billing model exists, seat enforcement should be based on the workspace owner's `AgentSubscription`.
+
+Seat counting rules:
+
+- count all active workspace members, including the owner
+- pending invites do not consume a seat until accepted
+- revoked, expired, or removed memberships do not consume a seat
+- if a workspace is already above a downgraded tier limit, block new invites and member activations until usage is back within limit
+
+Recommended enforcement points:
+
+- on invite creation
+- on invite acceptance
+- on manual member role/status activation
+- on subscription downgrade
+
+Recommended upgrade messaging:
+
+- Starter: up to 3 workspace users
+- Pro: up to 10 workspace users
+- Enterprise: custom seat allowance
 
 ---
 
@@ -755,7 +783,7 @@ Since GOWA is self-hosted, the deployment architecture is:
 ```
 Your Infrastructure:
 ├── GOWA instance (Docker)        → connects to WhatsApp via WA Web protocol
-├── Revonix API (apps/api)        → receives webhooks, processes with agent
+├── Renovix API (apps/api)        → receives webhooks, processes with agent
 └── PostgreSQL                    → stores conversations
 ```
 
@@ -836,6 +864,7 @@ model AgentSubscription {
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id])
   tier            String   // "starter" | "pro" | "enterprise"
+  maxWorkspaceUsers  Int?     @map("max_workspace_users")
   status          String   @default("active") // "active" | "canceled" | "past_due" | "expired"
   currentPeriodStart DateTime @db.Timestamptz()
   currentPeriodEnd   DateTime @db.Timestamptz()
@@ -848,6 +877,8 @@ model AgentSubscription {
   @@map("agent_subscriptions")
 }
 ```
+
+`maxWorkspaceUsers` should be derived from tier defaults but stored on the subscription record so plan migrations, promotions, or grandfathered contracts can be handled without hard-coding every decision in application logic.
 
 ### 6.5 Plan Enforcement Rules
 

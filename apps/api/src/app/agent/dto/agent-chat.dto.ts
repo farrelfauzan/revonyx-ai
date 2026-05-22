@@ -3,6 +3,7 @@ import { z } from "zod";
 export const AgentChatSchema = z.object({
   message: z.string().min(1).max(10000),
   sessionId: z.string().uuid().optional(),
+  output_format: z.enum(["pdf", "docx", "xlsx"]).optional(),
 });
 
 export type AgentChatDto = z.infer<typeof AgentChatSchema>;

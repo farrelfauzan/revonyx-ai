@@ -12,7 +12,7 @@ const prisma = new PrismaClient({ adapter });
  * These agents are owned by a system user and marked as public + active.
  */
 
-const SYSTEM_USER_EMAIL = "system@revonix.ai";
+const SYSTEM_USER_EMAIL = "system@renovix.ai";
 
 const publicAgents = [
   {

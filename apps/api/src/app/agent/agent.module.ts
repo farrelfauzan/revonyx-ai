@@ -10,6 +10,7 @@ import { ProvidersModule } from "../providers/providers.module";
 import { UsageModule } from "../usage/usage.module";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
 import { ConfigRegistryModule } from "../config/config-registry.module";
+import { DocumentModule } from "../document/document.module";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ConfigRegistryModule } from "../config/config-registry.module";
     UsageModule,
     KnowledgeModule,
     ConfigRegistryModule,
+    DocumentModule,
   ],
   controllers: [AgentController, AgentRunController],
   providers: [

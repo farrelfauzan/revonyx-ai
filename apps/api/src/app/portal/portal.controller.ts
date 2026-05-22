@@ -519,7 +519,6 @@ export class PortalController {
           const document = await this.documentService.generate(
             fullContent,
             outputFormat,
-            this.extractLatestUserPrompt(body.messages),
           );
           res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
         } catch (err: any) {
@@ -701,7 +700,6 @@ export class PortalController {
           generatedDocument = await this.documentService.generateWithStorage(
             fullContent,
             outputFormat,
-            this.extractLatestUserPrompt(body.messages),
           );
         } catch (err: any) {
           this.logger.error(
@@ -794,16 +792,5 @@ export class PortalController {
     filename: string;
   }): string {
     return `I've generated your ${document.format.toUpperCase()} document: **${document.filename}**`;
-  }
-
-  private extractLatestUserPrompt(
-    messages: Array<{ role: string; content: string }>,
-  ): string | undefined {
-    const latestUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "user")
-      ?.content?.trim();
-
-    return latestUserMessage || undefined;
   }
 }

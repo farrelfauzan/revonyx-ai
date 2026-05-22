@@ -1,14 +1,14 @@
-# Chat Memory Sharing Strategy (Revonix AI)
+# Chat Memory Sharing Strategy (Renovix AI)
 
 ## Objective
 
-Build a memory-sharing layer on top of chat history so Revonix AI can remember user interests and preferences across sessions, while keeping users comfortable through clear control, transparency, and privacy safeguards.
+Build a memory-sharing layer on top of chat history so Renovix AI can remember user interests and preferences across sessions, while keeping users comfortable through clear control, transparency, and privacy safeguards.
 
 Memory usage is automatic by design: the backend processes, retrieves, and injects relevant memory context across sessions without a per-chat frontend toggle.
 
 ## Success Criteria
 
-1. Revonix AI remembers stable user interests (for example: domains, preferred response tone, recurring goals) across conversations.
+1. Renovix AI remembers stable user interests (for example: domains, preferred response tone, recurring goals) across conversations.
 2. Users can see, edit, and delete what the AI remembers.
 3. Memory improves response relevance without causing privacy discomfort.
 4. Memory behavior is deterministic, auditable, and safe by default.
@@ -31,7 +31,7 @@ Create a two-layer memory system:
   - Scope: user-level profile across all conversations.
   - Lifetime: persistent with expiry and confidence decay.
 
-At request time, Revonix AI uses:
+At request time, Renovix AI uses:
 
 1. Active conversation context.
 2. Retrieved long-term user memory relevant to current query.
@@ -214,7 +214,7 @@ Memory retrieval adds overhead on the first message of a new session. Manage it:
 
 ### Transparency
 
-- Add a "What Revonix remembers" panel in chat UI.
+- Add a "What Renovix remembers" panel in chat UI.
 - Show memory entries with source and last-updated date.
 
 ### Control

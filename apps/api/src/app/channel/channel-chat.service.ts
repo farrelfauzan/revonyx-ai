@@ -24,7 +24,12 @@ export class ChannelChatService {
     channelId: string,
     agentId: string,
     message: string,
-  ): Promise<{ content: string; totalTokens: number }> {
+    options?: { documentFormat?: string },
+  ): Promise<{
+    content: string;
+    totalTokens: number;
+    assistantMessageId?: string;
+  }> {
     // Resolve the channel agent (verifies access)
     const channelAgent = await this.channelService.resolveChannelAgent(
       userId,
@@ -86,6 +91,15 @@ export class ChannelChatService {
       systemContent += `\n\n## Available Sub-Agents\n${subAgentList}\n\nDelegation policy:\n- Use delegate_to_subagent tool to delegate tasks.\n- Execute delegation immediately, do not ask confirmation.\n- Never invent sub-agent names or IDs not in this list.`;
     }
 
+    // When generating a document, instruct agent to research first
+    if (options?.documentFormat) {
+      const formatLabel =
+        { pdf: "PDF", docx: "Word document", xlsx: "Excel spreadsheet" }[
+          options.documentFormat
+        ] || options.documentFormat;
+      systemContent += `\n\n## Document Generation Mode\nThe user wants a ${formatLabel} document. Follow these steps:\n1. If you have tools available (web_search, delegate_to_subagent), USE THEM FIRST to research the topic thoroughly before writing.\n2. Write comprehensive, well-structured markdown content with proper headings, sections, and details.\n3. The markdown you produce will be automatically converted to ${formatLabel}. Focus on quality content.`;
+    }
+
     // Build messages
     const currentMessages: any[] = [
       { role: "system", content: systemContent },
@@ -107,7 +121,9 @@ export class ChannelChatService {
         providerId: modelEntry.providerId,
         messages: currentMessages,
         temperature: agent.temperature,
-        max_tokens: agent.maxTokens ?? 4096,
+        max_tokens: options?.documentFormat
+          ? Math.max(agent.maxTokens ?? 4096, 8192)
+          : (agent.maxTokens ?? 4096),
       };
 
       if (toolSchemas.length > 0) {
@@ -184,11 +200,20 @@ export class ChannelChatService {
 
       // Save assistant message
       if (fullContent) {
-        await this.channelService.saveMessage(channelAgent.id, userId, {
-          role: "assistant",
+        const savedMessage = await this.channelService.saveMessage(
+          channelAgent.id,
+          userId,
+          {
+            role: "assistant",
+            content: fullContent,
+            tokens: totalTokens,
+          },
+        );
+        return {
           content: fullContent,
-          tokens: totalTokens,
-        });
+          totalTokens,
+          assistantMessageId: savedMessage.id,
+        };
       }
 
       return { content: fullContent, totalTokens };

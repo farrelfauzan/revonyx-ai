@@ -19,7 +19,10 @@ export function useAgentChat(agentId: string) {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (message: string) => {
+    async (
+      message: string,
+      options?: { output_format?: "pdf" | "docx" | "xlsx" },
+    ) => {
       if (isAgentStreaming) return;
 
       // Add user message immediately
@@ -52,6 +55,9 @@ export function useAgentChat(agentId: string) {
             body: JSON.stringify({
               message,
               sessionId: activeRunId || undefined,
+              ...(options?.output_format
+                ? { output_format: options.output_format }
+                : {}),
             }),
             signal: controller.signal,
           },
@@ -68,6 +74,9 @@ export function useAgentChat(agentId: string) {
         const decoder = new TextDecoder();
         let buffer = "";
         let fullContent = "";
+        let documentData:
+          | { format: string; url: string; filename: string; expiresAt: string }
+          | undefined;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -95,6 +104,12 @@ export function useAgentChat(agentId: string) {
 
               // Handle status events
               if (parsed.status) continue;
+
+              // Handle document event
+              if (parsed.document) {
+                documentData = parsed.document;
+                continue;
+              }
 
               // Handle error
               if (parsed.error) {
@@ -128,6 +143,7 @@ export function useAgentChat(agentId: string) {
             role: "assistant",
             content: fullContent,
             createdAt: new Date().toISOString(),
+            ...(documentData ? { document: documentData } : {}),
           });
         }
       } catch (err: any) {

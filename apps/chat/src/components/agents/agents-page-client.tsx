@@ -38,6 +38,7 @@ import {
   UserPlus,
   X,
   Compass,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeBlock } from "@/components/code-block";
+import { DocumentCard } from "@/components/document-card";
+import { CreateServerDialog } from "@/components/agents/create-server-dialog";
+import { ServerTeamSidebar } from "@/components/workspace/server-team-sidebar";
 
 export default function AgentsPageClient() {
   const hydrated = useHydrated();
@@ -69,6 +73,7 @@ export default function AgentsPageClient() {
 
   const selectedServerId = searchParams.get("server");
   const selectedAgentId = searchParams.get("agent");
+  const [showTeamSidebar, setShowTeamSidebar] = useState(false);
 
   const setSelectedServerId = useCallback(
     (id: string | null) => {
@@ -191,6 +196,8 @@ export default function AgentsPageClient() {
             onDeleteServer={() => {
               setSelectedServerId(null);
             }}
+            onToggleTeam={() => setShowTeamSidebar((v) => !v)}
+            showTeamSidebar={showTeamSidebar}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 text-sm px-4 text-center gap-3">
@@ -223,6 +230,15 @@ export default function AgentsPageClient() {
           </div>
         )}
       </div>
+
+      {/* Far Right: Team Sidebar */}
+      {showTeamSidebar && selectedServerId && (
+        <ServerTeamSidebar
+          channelId={selectedServerId}
+          isOwner={true}
+          onClose={() => setShowTeamSidebar(false)}
+        />
+      )}
     </div>
   );
 }
@@ -232,58 +248,7 @@ export default function AgentsPageClient() {
 // ═══════════════════════════════════════════════════════════
 
 function CreateServerButton() {
-  const [showInput, setShowInput] = useState(false);
-  const [name, setName] = useState("");
-  const createChannel = useCreateChannel();
-
-  const handleCreate = () => {
-    if (!name.trim()) return;
-    createChannel.mutate(
-      { name: name.trim() },
-      {
-        onSuccess: () => {
-          toast.success("Server created!");
-          setName("");
-          setShowInput(false);
-        },
-        onError: () => toast.error("Failed to create server"),
-      },
-    );
-  };
-
-  if (showInput) {
-    return (
-      <div className="flex flex-col items-center gap-1">
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleCreate();
-            if (e.key === "Escape") setShowInput(false);
-          }}
-          placeholder="Name"
-          className="w-11 h-11 rounded-xl bg-zinc-800 text-center text-xs text-white border border-zinc-600 focus:outline-none focus:border-indigo-500"
-        />
-        <button
-          onClick={() => setShowInput(false)}
-          className="text-zinc-500 text-[10px]"
-        >
-          cancel
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => setShowInput(true)}
-      className="w-12 h-12 rounded-2xl flex items-center justify-center bg-zinc-800 text-emerald-400 hover:bg-emerald-600 hover:text-white hover:rounded-xl transition-all"
-      title="Create Server"
-    >
-      <Plus className="w-5 h-5" />
-    </button>
-  );
+  return <CreateServerDialog />;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -295,11 +260,15 @@ function ServerMiddlePanel({
   selectedAgentId,
   onSelectAgent,
   onDeleteServer,
+  onToggleTeam,
+  showTeamSidebar,
 }: {
   serverId: string;
   selectedAgentId: string | null;
   onSelectAgent: (id: string) => void;
   onDeleteServer: () => void;
+  onToggleTeam: () => void;
+  showTeamSidebar: boolean;
 }) {
   const { data: channel, isLoading } = useChannel(serverId);
   const router = useRouter();
@@ -391,24 +360,34 @@ function ServerMiddlePanel({
             </span>
           </div>
         </div>
-        <div className="flex gap-1 mt-2">
+        <div className="flex items-center gap-1 mt-2">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            className="h-7 text-xs text-zinc-400 hover:text-white"
+            className="h-7 w-7 text-zinc-400 hover:text-white"
             onClick={() => setShowAddAgent(!showAddAgent)}
+            title="Add Agent"
           >
-            <UserPlus className="w-3.5 h-3.5 mr-1" />
-            Add Agent
+            <Bot className="w-3.5 h-3.5" />
           </Button>
           <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-950/30"
-            onClick={handleDeleteServer}
+            size="icon"
+            variant={showTeamSidebar ? "secondary" : "ghost"}
+            className="h-7 w-7 text-zinc-400 hover:text-white"
+            onClick={onToggleTeam}
+            title="Team"
           >
-            <Trash2 className="w-3.5 h-3.5 mr-1" />
-            Delete
+            <Users className="w-3.5 h-3.5" />
+          </Button>
+          <div className="flex-1" />
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/30"
+            onClick={handleDeleteServer}
+            title="Delete Server"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
@@ -798,6 +777,7 @@ function ChannelChatPanel({
                     >
                       {msg.content}
                     </ReactMarkdown>
+                    {msg.document && <DocumentCard document={msg.document} />}
                   </div>
                 </div>
               )}
