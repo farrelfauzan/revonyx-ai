@@ -1,11 +1,14 @@
 import { Injectable, Logger, BadRequestException } from "@nestjs/common";
+import { Decimal } from "@prisma/client/runtime/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { ModelRegistryService } from "../config/model-registry.service";
 import { ProviderRouter } from "../providers/provider-router";
 import { ChannelService } from "./channel.service";
 import { AgentToolService } from "../agent/agent-tool.service";
+import { AgentMemoryService } from "../agent/agent-memory.service";
+import { UsageService } from "../usage/usage.service";
 
-const MAX_TOOL_ITERATIONS = 6;
+const MAX_TOOL_ITERATIONS = 30;
 
 @Injectable()
 export class ChannelChatService {
@@ -17,6 +20,8 @@ export class ChannelChatService {
     private readonly providerRouter: ProviderRouter,
     private readonly channelService: ChannelService,
     private readonly toolService: AgentToolService,
+    private readonly memoryService: AgentMemoryService,
+    private readonly usage: UsageService,
   ) {}
 
   async chat(
@@ -81,6 +86,18 @@ export class ChannelChatService {
 
     // Build system prompt with sub-agent info
     let systemContent = agent.systemPrompt || "You are a helpful assistant.";
+
+    // Inject workspace memories
+    const memoryContext = await this.memoryService.getWorkspaceMemoryContext(
+      agent.id,
+    );
+    if (memoryContext) {
+      systemContent += `\n\n## Workspace Memory\nHere are important facts you should remember:\n${memoryContext}`;
+    }
+
+    // Memory instruction
+    systemContent += `\n\n## Memory Policy\nAfter completing an important task (creating documents, spreadsheets, setting up resources, etc.), use the memory_store tool to save key details (IDs, URLs, names, structure) so you can reference them in future conversations.`;
+
     if (subAgents.length > 0) {
       const subAgentList = subAgents
         .map(
@@ -106,14 +123,22 @@ export class ChannelChatService {
       ...history.map((m) => ({ role: m.role, content: m.content })),
     ];
 
-    // Build tool schemas (auto-inject delegation for parent agents)
-    const toolSchemas = this.toolService.buildToolSchemas(agent.tools, {
-      injectDelegation: agent.agentType === "parent" && subAgents.length > 0,
-    });
+    // Build tool schemas including MCP tools (auto-inject delegation for parent agents)
+    const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
+      agent.tools,
+      agent.id,
+      {
+        injectDelegation: agent.agentType === "parent" && subAgents.length > 0,
+      },
+    );
 
     // Tool execution loop
     let iterations = 0;
     let totalTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let accumulatedContent = "";
+    const loopStart = Date.now();
 
     while (iterations < MAX_TOOL_ITERATIONS) {
       const callParams: any = {
@@ -145,6 +170,8 @@ export class ChannelChatService {
 
       const choice = response.choices?.[0];
       totalTokens += response.usage?.total_tokens || 0;
+      totalInputTokens += response.usage?.prompt_tokens || 0;
+      totalOutputTokens += response.usage?.completion_tokens || 0;
 
       this.logger.log(
         `[chat] iteration=${iterations} | RESPONSE in ${elapsed}ms | prompt=${response.usage?.prompt_tokens ?? "?"} completion=${response.usage?.completion_tokens ?? "?"} total=${response.usage?.total_tokens ?? "?"} cumulative=${totalTokens} | finish_reason=${choice?.finish_reason}`,
@@ -174,13 +201,18 @@ export class ChannelChatService {
                 toolCall.function.name,
                 args,
                 agent,
+                userId,
+                channelId,
               );
             }
 
             currentMessages.push({
               role: "tool",
               tool_call_id: toolCall.id,
-              content: result,
+              content:
+                result.length > 4000
+                  ? result.slice(0, 4000) + "\n...[truncated]"
+                  : result,
             });
           } catch (err: any) {
             currentMessages.push({
@@ -195,8 +227,28 @@ export class ChannelChatService {
         continue;
       }
 
+      // Handle truncated response (hit max_tokens)
+      if (choice.finish_reason === "length" && choice.message?.content) {
+        this.logger.warn(
+          `[chat] Response truncated (finish_reason=length) at iteration=${iterations}, continuing generation...`,
+        );
+        accumulatedContent += choice.message.content;
+        // Push partial content as assistant message and ask to continue
+        currentMessages.push({
+          role: "assistant",
+          content: choice.message.content,
+        });
+        currentMessages.push({
+          role: "user",
+          content:
+            "Continue from where you left off. Do not repeat what you already said.",
+        });
+        iterations++;
+        continue;
+      }
+
       // Final text response
-      const fullContent = choice.message?.content || "";
+      const fullContent = accumulatedContent + (choice.message?.content || "");
 
       // Save assistant message
       if (fullContent) {
@@ -209,6 +261,23 @@ export class ChannelChatService {
             tokens: totalTokens,
           },
         );
+
+        // Extract and store memory asynchronously
+        this.memoryService
+          .extractAndStore(agent.id, userId, message, fullContent, channelId)
+          .catch((err: any) =>
+            this.logger.error(`Memory extraction failed: ${err.message}`),
+          );
+
+        // Log usage
+        this.logUsage(
+          userId,
+          modelEntry,
+          totalInputTokens,
+          totalOutputTokens,
+          loopStart,
+        );
+
         return {
           content: fullContent,
           totalTokens,
@@ -219,7 +288,73 @@ export class ChannelChatService {
       return { content: fullContent, totalTokens };
     }
 
-    return { content: "Reached maximum tool iterations.", totalTokens };
+    // Hit max iterations — save what we have and inform user
+    this.logger.warn(
+      `[chat] Reached MAX_TOOL_ITERATIONS (${MAX_TOOL_ITERATIONS}) for agent=${agent.id}`,
+    );
+    const fallbackContent =
+      "I've completed as much as I could, but the task required more steps than I can handle in a single turn. Please ask me to continue where I left off.";
+    const savedMsg = await this.channelService.saveMessage(
+      channelAgent.id,
+      userId,
+      { role: "assistant", content: fallbackContent, tokens: totalTokens },
+    );
+
+    // Log usage
+    this.logUsage(
+      userId,
+      modelEntry,
+      totalInputTokens,
+      totalOutputTokens,
+      loopStart,
+    );
+
+    return {
+      content: fallbackContent,
+      totalTokens,
+      assistantMessageId: savedMsg.id,
+    };
+  }
+
+  private logUsage(
+    userId: string,
+    modelEntry: {
+      slug: string;
+      provider: string;
+      inputPrice: any;
+      outputPrice: any;
+    },
+    inputTokens: number,
+    outputTokens: number,
+    startTime: number,
+  ) {
+    const latencyMs = Date.now() - startTime;
+    this.registry
+      .getUserPrice(modelEntry.slug)
+      .then((pricing) => {
+        const cost = pricing
+          ? new Decimal(inputTokens)
+              .mul(pricing.inputPrice)
+              .add(new Decimal(outputTokens).mul(pricing.outputPrice))
+          : new Decimal(0);
+
+        this.usage
+          .logUsage({
+            userId,
+            model: modelEntry.slug,
+            inputTokens,
+            outputTokens,
+            cost,
+            latencyMs,
+            provider: modelEntry.provider,
+          })
+          .catch((err) =>
+            this.logger.error("Failed to log channel chat usage", err),
+          );
+      })
+      .catch((err) =>
+        this.logger.error("Failed to get pricing for usage log", err),
+      );
   }
 
   private async executeSubAgent(

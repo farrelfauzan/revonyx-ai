@@ -404,7 +404,7 @@ export class ChannelController {
           {
             role: "system",
             content:
-              "You classify user messages. If the user is asking to generate/create/export a document, reply with ONLY the format: pdf, docx, or xlsx. If not, reply with: none. No explanation.",
+              "You classify user messages. If the user is asking to generate/create/export a downloadable document, reply with ONLY the format: pdf, docx, or xlsx. If the user mentions Google Sheets, Google Docs, Google Slides, or any cloud-based document service, reply with: none (we cannot create those). If not a document request, reply with: none. No explanation.",
           },
           { role: "user", content: message },
         ],
