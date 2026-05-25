@@ -21,6 +21,7 @@ import { AgentModule } from "./agent/agent.module";
 import { ChannelModule } from "./channel/channel.module";
 import { EmailModule } from "./email/email.module";
 import { WorkspaceModule } from "./workspace/workspace.module";
+import { McpModule } from "./mcp/mcp.module";
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { WorkspaceModule } from "./workspace/workspace.module";
     ChannelModule,
     EmailModule,
     WorkspaceModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

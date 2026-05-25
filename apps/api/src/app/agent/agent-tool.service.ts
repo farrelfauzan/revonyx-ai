@@ -1,4 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import { McpClientService } from "../mcp/mcp-client.service";
+import { McpService } from "../mcp/mcp.service";
+import { AgentMemoryService } from "./agent-memory.service";
 
 interface ToolSchema {
   type: "function";
@@ -11,6 +14,33 @@ interface ToolSchema {
 
 @Injectable()
 export class AgentToolService {
+  private readonly logger = new Logger(AgentToolService.name);
+
+  private stripSchemaDescriptions(schema: unknown): void {
+    if (!schema || typeof schema !== "object") return;
+
+    const obj = schema as Record<string, unknown>;
+    delete obj.description;
+
+    for (const value of Object.values(obj)) {
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          this.stripSchemaDescriptions(item);
+        }
+        continue;
+      }
+
+      this.stripSchemaDescriptions(value);
+    }
+  }
+
+  constructor(
+    private readonly mcpClient: McpClientService,
+    private readonly mcpService: McpService,
+    private readonly memoryService: AgentMemoryService,
+  ) {}
+
+  // ─── Built-in tool definitions (internal tools that need direct DB/process access) ───
   private readonly toolDefinitions: Record<string, ToolSchema> = {
     web_search: {
       type: "function",
@@ -87,36 +117,6 @@ export class AgentToolService {
         },
       },
     },
-    api_call: {
-      type: "function",
-      function: {
-        name: "api_call",
-        description: "Make an HTTP request to an external API",
-        parameters: {
-          type: "object",
-          properties: {
-            url: {
-              type: "string",
-              description: "The URL to call",
-            },
-            method: {
-              type: "string",
-              enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-              description: "HTTP method",
-            },
-            body: {
-              type: "object",
-              description: "Request body (for POST/PUT/PATCH)",
-            },
-            headers: {
-              type: "object",
-              description: "Additional request headers",
-            },
-          },
-          required: ["url", "method"],
-        },
-      },
-    },
     delegate_to_subagent: {
       type: "function",
       function: {
@@ -160,200 +160,10 @@ export class AgentToolService {
         },
       },
     },
-    // Integration tools
-    jira_create_ticket: {
-      type: "function",
-      function: {
-        name: "jira_create_ticket",
-        description: "Create a new Jira issue (bug, story, task, epic)",
-        parameters: {
-          type: "object",
-          properties: {
-            summary: { type: "string", description: "Issue title" },
-            description: {
-              type: "string",
-              description: "Issue description",
-            },
-            issueType: {
-              type: "string",
-              enum: ["Bug", "Story", "Task", "Epic"],
-              description: "Type of issue",
-            },
-            priority: {
-              type: "string",
-              enum: ["Highest", "High", "Medium", "Low", "Lowest"],
-              description: "Issue priority",
-            },
-            assignee: {
-              type: "string",
-              description: "Assignee email or username",
-            },
-          },
-          required: ["summary", "issueType"],
-        },
-      },
-    },
-    jira_search_tickets: {
-      type: "function",
-      function: {
-        name: "jira_search_tickets",
-        description: "Search for Jira tickets using JQL",
-        parameters: {
-          type: "object",
-          properties: {
-            jql: { type: "string", description: "JQL query string" },
-            maxResults: {
-              type: "number",
-              description: "Max results to return",
-            },
-          },
-          required: ["jql"],
-        },
-      },
-    },
-    plane_create_issue: {
-      type: "function",
-      function: {
-        name: "plane_create_issue",
-        description: "Create an issue in Plane project management",
-        parameters: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "Issue name" },
-            description: { type: "string", description: "Issue description" },
-            priority: {
-              type: "string",
-              enum: ["urgent", "high", "medium", "low", "none"],
-            },
-            state: { type: "string", description: "Issue state" },
-          },
-          required: ["name"],
-        },
-      },
-    },
-    calendar_schedule_meeting: {
-      type: "function",
-      function: {
-        name: "calendar_schedule_meeting",
-        description: "Schedule a meeting with attendees",
-        parameters: {
-          type: "object",
-          properties: {
-            title: { type: "string", description: "Meeting title" },
-            start: {
-              type: "string",
-              description: "Start time (ISO 8601 format)",
-            },
-            end: {
-              type: "string",
-              description: "End time (ISO 8601 format)",
-            },
-            attendees: {
-              type: "array",
-              items: { type: "string" },
-              description: "List of attendee email addresses",
-            },
-            description: { type: "string", description: "Meeting description" },
-          },
-          required: ["title", "start", "end"],
-        },
-      },
-    },
-    calendar_find_availability: {
-      type: "function",
-      function: {
-        name: "calendar_find_availability",
-        description: "Find available time slots for attendees",
-        parameters: {
-          type: "object",
-          properties: {
-            attendees: {
-              type: "array",
-              items: { type: "string" },
-              description: "Email addresses to check availability for",
-            },
-            dateRange: {
-              type: "object",
-              properties: {
-                start: { type: "string", description: "Start date (ISO 8601)" },
-                end: { type: "string", description: "End date (ISO 8601)" },
-              },
-              required: ["start", "end"],
-            },
-            duration: {
-              type: "number",
-              description: "Meeting duration in minutes",
-            },
-          },
-          required: ["attendees", "dateRange", "duration"],
-        },
-      },
-    },
-    notion_create_page: {
-      type: "function",
-      function: {
-        name: "notion_create_page",
-        description: "Create a new page in Notion",
-        parameters: {
-          type: "object",
-          properties: {
-            title: { type: "string", description: "Page title" },
-            content: {
-              type: "string",
-              description: "Page content in markdown",
-            },
-            parentId: {
-              type: "string",
-              description: "Parent page or database ID",
-            },
-          },
-          required: ["title", "content"],
-        },
-      },
-    },
-    slack_send_message: {
-      type: "function",
-      function: {
-        name: "slack_send_message",
-        description: "Send a message to a Slack channel or DM",
-        parameters: {
-          type: "object",
-          properties: {
-            channel: {
-              type: "string",
-              description: "Channel name or user ID",
-            },
-            message: { type: "string", description: "Message content" },
-          },
-          required: ["channel", "message"],
-        },
-      },
-    },
-    github_create_issue: {
-      type: "function",
-      function: {
-        name: "github_create_issue",
-        description: "Create a GitHub issue",
-        parameters: {
-          type: "object",
-          properties: {
-            title: { type: "string", description: "Issue title" },
-            body: { type: "string", description: "Issue body in markdown" },
-            labels: {
-              type: "array",
-              items: { type: "string" },
-              description: "Labels to apply",
-            },
-            repo: {
-              type: "string",
-              description: "Repository in owner/repo format",
-            },
-          },
-          required: ["title", "body"],
-        },
-      },
-    },
   };
+
+  // Track which MCP server owns which tool (populated during buildToolSchemas)
+  private mcpToolMap = new Map<string, string>(); // toolName -> serverId
 
   buildToolSchemas(
     agentTools: any[],
@@ -379,10 +189,69 @@ export class AgentToolService {
     return schemas;
   }
 
-  async executeTool(toolName: string, args: any, agent: any): Promise<string> {
-    const timeout = 10000; // 10s timeout per tool
+  /**
+   * Build tool schemas including MCP tools from connected servers.
+   * Connects to each MCP server, discovers tools, and merges them with built-in tools.
+   */
+  async buildToolSchemasWithMcp(
+    agentTools: any[],
+    agentId: string,
+    options?: { injectDelegation?: boolean },
+  ): Promise<ToolSchema[]> {
+    // 1. Built-in tools
+    const schemas = this.buildToolSchemas(agentTools, options);
+
+    // 2. Discover MCP tools from connected servers
+    try {
+      const mcpConfigs = await this.mcpService.getAgentMcpConfigs(agentId);
+
+      for (const { config, allowedTools } of mcpConfigs) {
+        try {
+          await this.mcpClient.connectServer(config);
+          const mcpTools = await this.mcpClient.listTools(config.id);
+
+          for (const tool of mcpTools) {
+            // Only enforce explicit per-agent allow-list when configured
+            if (allowedTools && !allowedTools.includes(tool.name)) {
+              continue;
+            }
+
+            const schema = this.mcpClient.mcpToolToOpenAI(tool);
+            // Trim top-level description
+            if (schema.function.description && schema.function.description.length > 120) {
+              schema.function.description = schema.function.description.slice(0, 120);
+            }
+            // Remove nested parameter descriptions to reduce request payload size.
+            this.stripSchemaDescriptions(schema.function.parameters);
+            schemas.push(schema);
+            this.mcpToolMap.set(tool.name, config.id);
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to connect MCP server ${config.name}: ${err.message}`,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to load MCP configs for agent ${agentId}: ${err.message}`,
+      );
+    }
+
+    return schemas;
+  }
+
+  async executeTool(toolName: string, args: any, agent: any, userId?: string, channelId?: string): Promise<string> {
+    const timeout = 30000; // 30s timeout per tool
 
     const executeWithTimeout = async (): Promise<string> => {
+      // Check if it's an MCP tool
+      const mcpServerId = this.mcpToolMap.get(toolName);
+      if (mcpServerId) {
+        return this.executeMcpTool(mcpServerId, toolName, args);
+      }
+
+      // Built-in tools
       switch (toolName) {
         case "calculator":
           return this.executeCalculator(args);
@@ -391,29 +260,11 @@ export class AgentToolService {
         case "knowledge_retrieval":
           return this.executeKnowledgeRetrieval(args, agent);
         case "memory_store":
-          return this.executeMemoryStore(args, agent);
-        case "api_call":
-          return this.executeApiCall(args, agent);
+          return this.executeMemoryStore(args, agent, userId, channelId);
         case "code_exec":
           return this.executeCodeExec(args);
-        case "jira_create_ticket":
-          return this.executeJiraCreateTicket(args, agent);
-        case "jira_search_tickets":
-          return this.executeJiraSearchTickets(args, agent);
-        case "plane_create_issue":
-          return this.executePlaneCreateIssue(args, agent);
-        case "calendar_schedule_meeting":
-          return this.executeCalendarScheduleMeeting(args, agent);
-        case "calendar_find_availability":
-          return this.executeCalendarFindAvailability(args, agent);
-        case "notion_create_page":
-          return this.executeNotionCreatePage(args, agent);
-        case "slack_send_message":
-          return this.executeSlackSendMessage(args, agent);
-        case "github_create_issue":
-          return this.executeGithubCreateIssue(args, agent);
         default:
-          return `Tool "${toolName}" is not supported.`;
+          return `Tool "${toolName}" is not available. It may require an MCP integration to be connected.`;
       }
     };
 
@@ -423,6 +274,43 @@ export class AgentToolService {
         setTimeout(() => reject(new Error("Tool execution timeout")), timeout),
       ),
     ]);
+  }
+
+  /**
+   * Execute a tool via MCP server
+   */
+  private async executeMcpTool(
+    serverId: string,
+    toolName: string,
+    args: any,
+  ): Promise<string> {
+    try {
+      const result = await this.mcpClient.callTool(serverId, toolName, args);
+
+      // MCP returns content as an array of content blocks
+      if (result.content && Array.isArray(result.content)) {
+        return result.content
+          .map((block: any) => {
+            if (block.type === "text") return block.text;
+            if (block.type === "image") return `[Image: ${block.mimeType}]`;
+            return JSON.stringify(block);
+          })
+          .join("\n");
+      }
+
+      return JSON.stringify(result);
+    } catch (err: any) {
+      this.logger.error(`MCP tool ${toolName} error: ${err.message}`);
+      return `Error executing ${toolName}: ${err.message}`;
+    }
+  }
+
+  /**
+   * Disconnect all MCP servers after a run completes
+   */
+  async cleanupMcpConnections(): Promise<void> {
+    await this.mcpClient.disconnectAll();
+    this.mcpToolMap.clear();
   }
 
   // ─── Tool Implementations ───
@@ -474,40 +362,28 @@ export class AgentToolService {
   private async executeMemoryStore(
     args: { fact: string; type: string },
     agent: any,
+    userId?: string,
+    channelId?: string,
   ): Promise<string> {
-    return `Stored memory: "${args.fact}" (type: ${args.type})`;
-  }
-
-  private async executeApiCall(
-    args: { url: string; method: string; body?: any; headers?: any },
-    agent: any,
-  ): Promise<string> {
+    if (!userId) {
+      this.logger.warn(`[memory_store] No userId provided for agent ${agent.id}`);
+      return `Memory store failed: user context unavailable.`;
+    }
     try {
-      // Validate URL is in allowlist from agent's tool config
-      const allowedDomains = this.getAllowedDomains(agent);
-      const url = new URL(args.url);
-
-      if (allowedDomains.length > 0 && !allowedDomains.includes(url.hostname)) {
-        return `Error: Domain "${url.hostname}" is not in the allowed domains list.`;
-      }
-
-      const response = await fetch(args.url, {
-        method: args.method,
-        headers: {
-          "Content-Type": "application/json",
-          ...(args.headers || {}),
-        },
-        body: args.body ? JSON.stringify(args.body) : undefined,
-        signal: AbortSignal.timeout(5000),
-      });
-
-      const text = await response.text();
-      const truncated =
-        text.length > 2000 ? text.substring(0, 2000) + "..." : text;
-
-      return `HTTP ${response.status}: ${truncated}`;
+      this.logger.log(
+        `[memory_store] Storing for agent=${agent.id} userId=${userId} channelId=${channelId ?? "null"} type=${args.type} fact="${(args.fact || "").slice(0, 80)}"`,
+      );
+      await this.memoryService.storeExplicit(
+        agent.id,
+        userId,
+        args.fact,
+        args.type || "context",
+        channelId,
+      );
+      return `Successfully stored memory: "${args.fact}" (type: ${args.type})`;
     } catch (err: any) {
-      return `API call error: ${err.message}`;
+      this.logger.error(`Memory store failed: ${err.message}`, err.stack);
+      return `Failed to store memory: ${err.message}`;
     }
   }
 
@@ -526,355 +402,5 @@ export class AgentToolService {
       }
     }
     return `Language "${args.language}" execution is not yet supported.`;
-  }
-
-  private async executeJiraCreateTicket(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "jira",
-    );
-    if (!integration)
-      return "Error: Jira integration not connected for this agent.";
-
-    try {
-      const { baseUrl, apiKey, email, projectKey } = integration.config as any;
-
-      const response = await fetch(`${baseUrl}/rest/api/3/issue`, {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${email}:${apiKey}`).toString("base64")}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fields: {
-            project: { key: projectKey },
-            summary: args.summary,
-            description: {
-              type: "doc",
-              version: 1,
-              content: [
-                {
-                  type: "paragraph",
-                  content: [{ type: "text", text: args.description || "" }],
-                },
-              ],
-            },
-            issuetype: { name: args.issueType },
-            ...(args.priority && { priority: { name: args.priority } }),
-          },
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-
-      const data: any = await response.json();
-      if (response.ok) {
-        return `Created Jira ticket: ${data.key} - ${args.summary}`;
-      }
-      return `Jira error: ${JSON.stringify(data.errors || data.errorMessages)}`;
-    } catch (err: any) {
-      return `Jira API error: ${err.message}`;
-    }
-  }
-
-  private async executeJiraSearchTickets(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "jira",
-    );
-    if (!integration) return "Error: Jira integration not connected.";
-
-    try {
-      const { baseUrl, apiKey, email } = integration.config as any;
-
-      const response = await fetch(
-        `${baseUrl}/rest/api/3/search?jql=${encodeURIComponent(args.jql)}&maxResults=${args.maxResults || 10}`,
-        {
-          headers: {
-            Authorization: `Basic ${Buffer.from(`${email}:${apiKey}`).toString("base64")}`,
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(8000),
-        },
-      );
-
-      const data: any = await response.json();
-      if (response.ok) {
-        const issues = data.issues.map((i: any) => ({
-          key: i.key,
-          summary: i.fields.summary,
-          status: i.fields.status?.name,
-          assignee: i.fields.assignee?.displayName,
-        }));
-        return `Found ${data.total} tickets:\n${JSON.stringify(issues, null, 2)}`;
-      }
-      return `Jira search error: ${JSON.stringify(data.errorMessages)}`;
-    } catch (err: any) {
-      return `Jira search error: ${err.message}`;
-    }
-  }
-
-  private async executePlaneCreateIssue(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "plane",
-    );
-    if (!integration) return "Error: Plane integration not connected.";
-
-    try {
-      const { baseUrl, apiKey, workspaceSlug, projectId } =
-        integration.config as any;
-
-      const response = await fetch(
-        `${baseUrl}/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/issues/`,
-        {
-          method: "POST",
-          headers: {
-            "X-API-Key": apiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: args.name,
-            description_html: args.description || "",
-            priority: args.priority || "medium",
-            state: args.state,
-          }),
-          signal: AbortSignal.timeout(8000),
-        },
-      );
-
-      const data: any = await response.json();
-      if (response.ok) {
-        return `Created Plane issue: ${data.identifier || data.id} - ${args.name}`;
-      }
-      return `Plane error: ${JSON.stringify(data)}`;
-    } catch (err: any) {
-      return `Plane API error: ${err.message}`;
-    }
-  }
-
-  private async executeCalendarScheduleMeeting(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "google_calendar" || i.provider === "outlook",
-    );
-    if (!integration) return "Error: Calendar integration not connected.";
-
-    // Google Calendar implementation
-    if (integration.provider === "google_calendar") {
-      try {
-        const { accessToken, calendarId } = integration.config as any;
-
-        const response = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${calendarId || "primary"}/events`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              summary: args.title,
-              description: args.description,
-              start: { dateTime: args.start },
-              end: { dateTime: args.end },
-              attendees: args.attendees?.map((email: string) => ({ email })),
-            }),
-            signal: AbortSignal.timeout(8000),
-          },
-        );
-
-        const data: any = await response.json();
-        if (response.ok) {
-          return `Meeting scheduled: "${args.title}" from ${args.start} to ${args.end}. Event ID: ${data.id}`;
-        }
-        return `Calendar error: ${data.error?.message || JSON.stringify(data)}`;
-      } catch (err: any) {
-        return `Calendar API error: ${err.message}`;
-      }
-    }
-
-    return "Outlook calendar integration not yet implemented.";
-  }
-
-  private async executeCalendarFindAvailability(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "google_calendar",
-    );
-    if (!integration) return "Error: Calendar integration not connected.";
-
-    try {
-      const { accessToken } = integration.config as any;
-
-      const response = await fetch(
-        `https://www.googleapis.com/calendar/v3/freeBusy`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            timeMin: args.dateRange.start,
-            timeMax: args.dateRange.end,
-            items: args.attendees.map((email: string) => ({ id: email })),
-          }),
-          signal: AbortSignal.timeout(8000),
-        },
-      );
-
-      const data: any = await response.json();
-      if (response.ok) {
-        return `Availability check completed:\n${JSON.stringify(data.calendars, null, 2)}`;
-      }
-      return `Availability check error: ${data.error?.message}`;
-    } catch (err: any) {
-      return `Calendar API error: ${err.message}`;
-    }
-  }
-
-  private async executeNotionCreatePage(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "notion",
-    );
-    if (!integration) return "Error: Notion integration not connected.";
-
-    try {
-      const { apiKey, parentPageId } = integration.config as any;
-
-      const response = await fetch(`https://api.notion.com/v1/pages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "Notion-Version": "2022-06-28",
-        },
-        body: JSON.stringify({
-          parent: { page_id: args.parentId || parentPageId },
-          properties: {
-            title: {
-              title: [{ text: { content: args.title } }],
-            },
-          },
-          children: [
-            {
-              object: "block",
-              type: "paragraph",
-              paragraph: {
-                rich_text: [{ type: "text", text: { content: args.content } }],
-              },
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-
-      const data: any = await response.json();
-      if (response.ok) {
-        return `Created Notion page: "${args.title}" (ID: ${data.id})`;
-      }
-      return `Notion error: ${data.message || JSON.stringify(data)}`;
-    } catch (err: any) {
-      return `Notion API error: ${err.message}`;
-    }
-  }
-
-  private async executeSlackSendMessage(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "slack",
-    );
-    if (!integration) return "Error: Slack integration not connected.";
-
-    try {
-      const { botToken } = integration.config as any;
-
-      const response = await fetch(`https://slack.com/api/chat.postMessage`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${botToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          channel: args.channel,
-          text: args.message,
-        }),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      const data: any = await response.json();
-      if (data.ok) {
-        return `Message sent to ${args.channel}: "${args.message}"`;
-      }
-      return `Slack error: ${data.error}`;
-    } catch (err: any) {
-      return `Slack API error: ${err.message}`;
-    }
-  }
-
-  private async executeGithubCreateIssue(
-    args: any,
-    agent: any,
-  ): Promise<string> {
-    const integration = agent.integrations?.find(
-      (i: any) => i.provider === "github",
-    );
-    if (!integration) return "Error: GitHub integration not connected.";
-
-    try {
-      const { accessToken, defaultRepo } = integration.config as any;
-      const repo = args.repo || defaultRepo;
-
-      if (!repo) return "Error: No repository specified.";
-
-      const response = await fetch(
-        `https://api.github.com/repos/${repo}/issues`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-            Accept: "application/vnd.github.v3+json",
-          },
-          body: JSON.stringify({
-            title: args.title,
-            body: args.body,
-            labels: args.labels,
-          }),
-          signal: AbortSignal.timeout(8000),
-        },
-      );
-
-      const data: any = await response.json();
-      if (response.ok) {
-        return `Created GitHub issue #${data.number}: "${args.title}" (${data.html_url})`;
-      }
-      return `GitHub error: ${data.message}`;
-    } catch (err: any) {
-      return `GitHub API error: ${err.message}`;
-    }
-  }
-
-  private getAllowedDomains(agent: any): string[] {
-    const apiCallTool = agent.tools?.find(
-      (t: any) => t.toolType === "api_call",
-    );
-    if (!apiCallTool?.config?.allowedDomains) return [];
-    return apiCallTool.config.allowedDomains;
   }
 }

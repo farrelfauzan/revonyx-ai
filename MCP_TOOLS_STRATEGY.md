@@ -45,7 +45,7 @@ Currently, each integration (Jira, Slack, Notion, GitHub, Calendar) is hand-code
 
 ### 1. Google Workspace MCP Server
 
-**Package**: Self-hosted with `@modelcontextprotocol/sdk` + `googleapis`, or community servers like `@gongrzhe/server-gmail-autoauth-mcp`
+**Package**: `@gongrzhe/server-gmail-autoauth-mcp`, `@adenot/google-calendar-mcp`, `@anthropic/mcp-google-drive`
 
 | Tool | Description |
 |------|-------------|
@@ -275,22 +275,17 @@ async executeTool(toolName: string, args: any, agent: any): Promise<string> {
 
 ### Phase 4: Google Workspace Setup
 
-#### Option A: Official MCP Server (stdio)
+Use community MCP servers via stdio transport. Each Google service has a dedicated MCP server package:
 
-```bash
-# No third-party MCP server package needed for Google
-# Use the MCP SDK + googleapis to build your own
-bun add @modelcontextprotocol/sdk googleapis
-```
+#### Gmail
 
-If a community stdio server becomes available:
 ```json
 {
-  "id": "google-workspace",
-  "name": "Google Workspace",
+  "id": "google-gmail",
+  "name": "Gmail",
   "transport": "stdio",
-  "command": "node",
-  "args": ["dist/mcp/servers/google-workspace.mcp.js"],
+  "command": "npx",
+  "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
   "env": {
     "GOOGLE_CLIENT_ID": "{{from_agent_integration}}",
     "GOOGLE_CLIENT_SECRET": "{{from_agent_integration}}",
@@ -299,57 +294,83 @@ If a community stdio server becomes available:
 }
 ```
 
-#### Option B: Self-hosted MCP Server (SSE)
+#### Google Calendar
 
-For multi-tenant use, run a shared Google Workspace MCP server with per-user OAuth:
+```json
+{
+  "id": "google-calendar",
+  "name": "Google Calendar",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@adenot/google-calendar-mcp"],
+  "env": {
+    "GOOGLE_CLIENT_ID": "{{from_agent_integration}}",
+    "GOOGLE_CLIENT_SECRET": "{{from_agent_integration}}",
+    "GOOGLE_REFRESH_TOKEN": "{{from_agent_integration}}"
+  }
+}
+```
+
+#### Google Drive
+
+```json
+{
+  "id": "google-drive",
+  "name": "Google Drive",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@anthropic/mcp-google-drive"],
+  "env": {
+    "GOOGLE_CLIENT_ID": "{{from_agent_integration}}",
+    "GOOGLE_CLIENT_SECRET": "{{from_agent_integration}}",
+    "GOOGLE_REFRESH_TOKEN": "{{from_agent_integration}}"
+  }
+}
+```
+
+#### Google Sheets (via community)
+
+```json
+{
+  "id": "google-sheets",
+  "name": "Google Sheets",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@nicepkg/mcp-server-gsheets"],
+  "env": {
+    "GOOGLE_CLIENT_ID": "{{from_agent_integration}}",
+    "GOOGLE_CLIENT_SECRET": "{{from_agent_integration}}",
+    "GOOGLE_REFRESH_TOKEN": "{{from_agent_integration}}"
+  }
+}
+```
+
+#### Multi-tenant Approach
+
+Since each user has their own OAuth refresh token, spawn a **separate stdio process per user session** with that user's credentials injected as env vars. The `McpClientService` manages the lifecycle:
 
 ```typescript
-// apps/api/src/app/mcp/servers/google-workspace.mcp.ts
-
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { google } from 'googleapis';
-
-const server = new McpServer({ name: 'google-workspace', version: '1.0.0' });
-
-server.tool('gmail_send', {
-  to: { type: 'string', description: 'Recipient email' },
-  subject: { type: 'string', description: 'Email subject' },
-  body: { type: 'string', description: 'Email body (HTML supported)' },
-}, async ({ to, subject, body }, extra) => {
-  const auth = getOAuthClient(extra.meta?.userId);
-  const gmail = google.gmail({ version: 'v1', auth });
-  
-  const raw = Buffer.from(
-    `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/html\r\n\r\n${body}`
-  ).toString('base64url');
-
-  await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
-  return { content: [{ type: 'text', text: `Email sent to ${to}` }] };
-});
-
-server.tool('gcalendar_create_event', {
-  title: { type: 'string' },
-  start: { type: 'string', description: 'ISO 8601 datetime' },
-  end: { type: 'string', description: 'ISO 8601 datetime' },
-  attendees: { type: 'string', description: 'Comma-separated emails' },
-}, async ({ title, start, end, attendees }, extra) => {
-  const auth = getOAuthClient(extra.meta?.userId);
-  const calendar = google.calendar({ version: 'v3', auth });
-
-  const event = await calendar.events.insert({
-    calendarId: 'primary',
-    requestBody: {
-      summary: title,
-      start: { dateTime: start },
-      end: { dateTime: end },
-      attendees: attendees?.split(',').map(e => ({ email: e.trim() })),
-    },
+async connectGoogleForUser(userId: string, service: string): Promise<void> {
+  const integration = await this.prisma.agentIntegration.findFirst({
+    where: { userId, type: 'google_workspace' },
   });
+  const credentials = this.decrypt(integration.configEncrypted);
 
-  return { content: [{ type: 'text', text: `Event created: ${event.data.htmlLink}` }] };
-});
+  const config: McpServerConfig = {
+    id: `google-${service}-${userId}`,
+    name: `Google ${service}`,
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', this.getPackageForService(service)],
+    env: {
+      GOOGLE_CLIENT_ID: this.configService.get('MCP_GOOGLE_CLIENT_ID'),
+      GOOGLE_CLIENT_SECRET: this.configService.get('MCP_GOOGLE_CLIENT_SECRET'),
+      GOOGLE_REFRESH_TOKEN: credentials.refreshToken,
+    },
+  };
 
-// ... more tools (gdrive_list, gsheets_read, etc.)
+  await this.connectServer(config);
+}
 ```
 
 ---
@@ -392,14 +413,11 @@ https://www.googleapis.com/auth/documents
 ## Dependencies
 
 ```bash
-# MCP SDK (client + server)
+# MCP SDK (client only — no server needed)
 bun add @modelcontextprotocol/sdk
 
-# Google APIs (for self-hosted MCP server)
-bun add googleapis
-
-# Google APIs (used by self-hosted MCP server)
-# No Anthropic dependency needed — MCP is an open protocol
+# Community MCP servers are invoked via npx at runtime, no install needed.
+# They are spawned as child processes with stdio transport.
 ```
 
 ---
@@ -459,7 +477,7 @@ In the dashboard, when creating/editing an agent:
 
 | Server | Package | Description |
 |--------|---------|-------------|
-| Google Workspace | Self-hosted (`@modelcontextprotocol/sdk` + `googleapis`) | Gmail, Calendar, Drive, Docs, Sheets |
+| Google Workspace | `@gongrzhe/server-gmail-autoauth-mcp`, `@adenot/google-calendar-mcp`, `@anthropic/mcp-google-drive` | Gmail, Calendar, Drive, Docs, Sheets |
 | GitHub | `@modelcontextprotocol/server-github` | Issues, PRs, repos, files |
 | Slack | `@modelcontextprotocol/server-slack` | Messages, channels |
 | Notion | `@modelcontextprotocol/server-notion` | Pages, databases |
@@ -486,13 +504,11 @@ In the dashboard, when creating/editing an agent:
 apps/api/src/app/mcp/
 ├── mcp.module.ts              # NestJS module
 ├── mcp-client.service.ts      # MCP client (connect, list tools, call tools)
-├── mcp-server.service.ts      # Manages MCP server lifecycle
+├── mcp-registry.service.ts    # Maps services to community MCP packages
 ├── mcp.controller.ts          # REST endpoints for managing MCP configs
-├── dto/
-│   ├── create-mcp-server.dto.ts
-│   └── update-mcp-server.dto.ts
-└── servers/
-    └── google-workspace.mcp.ts  # Self-hosted Google Workspace MCP server
+└── dto/
+    ├── create-mcp-server.dto.ts
+    └── update-mcp-server.dto.ts
 ```
 
 ---
@@ -512,6 +528,334 @@ apps/api/src/app/mcp/
 
 ---
 
+## Frontend Strategy
+
+### Pages & Routes
+
+```
+/dashboard/integrations              → MCP server marketplace + connected services
+/dashboard/integrations/connect/:id  → OAuth flow / token input for a specific service
+/dashboard/agents/:id/tools          → Agent tool configuration (built-in + MCP)
+```
+
+### 1. Integrations Page (`/dashboard/integrations`)
+
+Displays available MCP servers as cards with connection status.
+
+```tsx
+// apps/dashboard/src/app/integrations/page.tsx
+
+interface IntegrationCard {
+  id: string;
+  name: string;
+  icon: string;          // e.g. "/icons/google-workspace.svg"
+  description: string;
+  status: 'connected' | 'disconnected' | 'error';
+  connectedAt?: string;
+  tools: string[];       // available tools from this server
+}
+```
+
+**UI Layout:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  Integrations                              [+ Add Custom] │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │ 🟢 Google    │  │ 🔴 GitHub    │  │ 🔴 Slack     │   │
+│  │ Workspace    │  │              │  │              │   │
+│  │ Connected    │  │ [Connect]    │  │ [Connect]    │   │
+│  │ 13 tools     │  │ 5 tools      │  │ 4 tools      │   │
+│  │ [Manage]     │  │              │  │              │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
+│                                                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │ 🔴 Notion    │  │ 🔴 Linear    │  │ 🔴 Jira      │   │
+│  │              │  │              │  │              │   │
+│  │ [Connect]    │  │ [Connect]    │  │ [Connect]    │   │
+│  │ 4 tools      │  │ 6 tools      │  │ 5 tools      │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 2. Connection Flow
+
+**OAuth-based (Google, GitHub, Slack, Notion):**
+```
+[Connect] button → GET /api/integrations/:provider/connect
+                 → Redirect to provider OAuth consent
+                 → Callback → store token → redirect back with ?connected=true
+```
+
+**Token-based (Linear, Jira):**
+```
+[Connect] button → Modal with token input field
+                 → POST /api/mcp/servers { name, env: { token } }
+                 → Test connection → show success/error
+```
+
+```tsx
+// apps/dashboard/src/components/integrations/connect-modal.tsx
+
+function ConnectTokenModal({ provider, onSuccess }) {
+  const [token, setToken] = useState('');
+  const mutation = useMutation({
+    mutationFn: (data) => api.post('/mcp/servers', data),
+    onSuccess,
+  });
+
+  return (
+    <Dialog>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Connect {provider.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>API Token</Label>
+            <Input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={`Enter your ${provider.name} token`}
+            />
+            <p className="text-sm text-muted-foreground mt-1">
+              {provider.tokenHelpText}
+            </p>
+          </div>
+          <Button
+            onClick={() => mutation.mutate({
+              name: provider.id,
+              transport: 'stdio',
+              command: 'npx',
+              args: ['-y', provider.package],
+              env: { [`${provider.envKey}`]: token },
+            })}
+            disabled={!token || mutation.isPending}
+          >
+            {mutation.isPending ? 'Testing...' : 'Connect & Test'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+### 3. Agent Tool Configuration (`/dashboard/agents/:id/tools`)
+
+When editing an agent, a "Tools" tab lets users:
+1. Toggle built-in tools (calculator, web_search, knowledge_retrieval, etc.)
+2. Attach MCP servers and select which tools from each server the agent can use
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Agent: Executive Assistant    [General] [Tools] [KB]    │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  Built-in Tools                                           │
+│  ┌─────────────────────────────────────────────────┐     │
+│  │ ☑ knowledge_retrieval   ☑ memory_store          │     │
+│  │ ☑ calculator            ☐ web_search            │     │
+│  │ ☐ code_exec             ☑ delegate_to_subagent  │     │
+│  └─────────────────────────────────────────────────┘     │
+│                                                           │
+│  MCP Integrations                     [+ Add Integration] │
+│  ┌─────────────────────────────────────────────────┐     │
+│  │ 🟢 Google Workspace                    [Remove] │     │
+│  │   ☑ gmail_send         ☑ gmail_search           │     │
+│  │   ☑ gcalendar_create   ☑ gcalendar_list         │     │
+│  │   ☐ gdrive_list        ☐ gdrive_read            │     │
+│  │   ☐ gsheets_read       ☐ gsheets_write          │     │
+│  ├─────────────────────────────────────────────────┤     │
+│  │ 🟢 GitHub                              [Remove] │     │
+│  │   ☑ create_issue       ☑ search_repositories    │     │
+│  │   ☐ create_pull_request ☐ get_file_contents     │     │
+│  └─────────────────────────────────────────────────┘     │
+│                                                           │
+│                                          [Save Changes]   │
+└─────────────────────────────────────────────────────────┘
+```
+
+```tsx
+// apps/dashboard/src/components/agents/agent-mcp-tools.tsx
+
+function AgentMcpTools({ agentId }) {
+  const { data: connectedServers } = useQuery({
+    queryKey: ['mcp-servers'],
+    queryFn: () => api.get('/mcp/servers'),
+  });
+
+  const { data: agentMcp } = useQuery({
+    queryKey: ['agents', agentId, 'mcp'],
+    queryFn: () => api.get(`/agents/${agentId}/mcp`),
+  });
+
+  const attachMutation = useMutation({
+    mutationFn: (data: { mcpServerId: string; allowedTools: string[] }) =>
+      api.post(`/agents/${agentId}/mcp`, data),
+    onSuccess: () => queryClient.invalidateQueries(['agents', agentId, 'mcp']),
+  });
+
+  const updateToolsMutation = useMutation({
+    mutationFn: ({ serverId, tools }: { serverId: string; tools: string[] }) =>
+      api.patch(`/agents/${agentId}/mcp/${serverId}`, { allowedTools: tools }),
+    onSuccess: () => queryClient.invalidateQueries(['agents', agentId, 'mcp']),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium">MCP Integrations</h3>
+        <AddIntegrationDropdown
+          servers={connectedServers}
+          attached={agentMcp}
+          onAttach={(serverId) => attachMutation.mutate({ mcpServerId: serverId, allowedTools: [] })}
+        />
+      </div>
+
+      {agentMcp?.map((mcp) => (
+        <McpServerToolSelector
+          key={mcp.id}
+          server={mcp.mcpServer}
+          selectedTools={mcp.allowedTools || []}
+          onToggleTool={(tools) =>
+            updateToolsMutation.mutate({ serverId: mcp.mcpServerId, tools })
+          }
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+### 4. React Query Hooks
+
+```tsx
+// apps/dashboard/src/hooks/use-mcp.ts
+
+export function useMcpServers() {
+  return useQuery({
+    queryKey: ['mcp-servers'],
+    queryFn: () => api.get<McpServer[]>('/mcp/servers'),
+  });
+}
+
+export function useMcpServerTools(serverId: string) {
+  return useQuery({
+    queryKey: ['mcp-servers', serverId, 'tools'],
+    queryFn: () => api.get<McpTool[]>(`/mcp/servers/${serverId}/tools`),
+    enabled: !!serverId,
+  });
+}
+
+export function useConnectMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateMcpServerDto) => api.post('/mcp/servers', data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }),
+  });
+}
+
+export function useTestMcpConnection(serverId: string) {
+  return useMutation({
+    mutationFn: () => api.post(`/mcp/servers/${serverId}/test`),
+  });
+}
+
+export function useAgentMcpServers(agentId: string) {
+  return useQuery({
+    queryKey: ['agents', agentId, 'mcp'],
+    queryFn: () => api.get<AgentMcpServer[]>(`/agents/${agentId}/mcp`),
+    enabled: !!agentId,
+  });
+}
+```
+
+### 5. Types
+
+```tsx
+// apps/dashboard/src/types/mcp.ts
+
+export interface McpServer {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'sse';
+  isGlobal: boolean;
+  status: 'connected' | 'disconnected' | 'error';
+  createdAt: string;
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, any>;
+}
+
+export interface AgentMcpServer {
+  id: string;
+  mcpServerId: string;
+  mcpServer: McpServer;
+  allowedTools: string[] | null; // null = all tools allowed
+}
+
+export interface CreateMcpServerDto {
+  name: string;
+  transport: 'stdio' | 'sse';
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+}
+```
+
+### 6. Chat UI — Tool Call Display
+
+When the agent uses an MCP tool during a conversation, show it inline:
+
+```tsx
+// apps/chat/src/components/tool-call-card.tsx
+
+function ToolCallCard({ toolCall }: { toolCall: ToolCallMessage }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border rounded-lg p-3 my-2 bg-muted/50">
+      <div
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <ToolIcon name={toolCall.name} />
+        <span className="font-medium text-sm">{formatToolName(toolCall.name)}</span>
+        <Badge variant="outline" className="text-xs">
+          {toolCall.duration}ms
+        </Badge>
+        <ChevronDown className={cn("ml-auto h-4 w-4", expanded && "rotate-180")} />
+      </div>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          <div>
+            <span className="text-xs text-muted-foreground">Input:</span>
+            <pre className="text-xs bg-background p-2 rounded mt-1">
+              {JSON.stringify(toolCall.args, null, 2)}
+            </pre>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">Result:</span>
+            <pre className="text-xs bg-background p-2 rounded mt-1">
+              {toolCall.result}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
 ## Timeline
 
 | Phase | Scope | Effort |
@@ -521,4 +865,7 @@ apps/api/src/app/mcp/
 | 3 | Agent tool loop integration (discovery + execution) | Medium |
 | 4 | Google Workspace MCP server (self-hosted) | Medium |
 | 5 | OAuth flow + dashboard UI for connecting services | Medium |
+| 5a | Integrations page + connection modals | Medium |
+| 5b | Agent tool configuration UI | Small |
+| 5c | Chat tool call display | Small |
 | 6 | Migrate existing integrations to MCP | Large (optional) |
