@@ -1,83 +1,77 @@
 # PR Description
 
 ## Summary
-This PR introduces a full AI Agents platform across database, API, and chat UI, adds channel orchestration capabilities, improves provider/tool-calling reliability, and rebrands product-facing text from Revonyx to Renovix AI.
+This PR extends the AI Agents platform with MCP (Model Context Protocol) tools integration, an improved agent builder UI, landing page redesign, token usage tracking, channel chat memory/usage enhancements, and strategy documentation for guardrails and notifications.
 
 ## What Changed
 
-### 1. Provider + Model Routing Improvements (API)
-- Added model resolution by `providerId` in model registry.
-- Extended provider request contract to support tools (`tools`, `tool_choice`).
-- Added richer provider router logging for chat and stream paths.
-- Upgraded Together adapter:
-  - Tool-calling payload support
-  - Retry with exponential backoff for transient errors
-  - Longer request timeouts for stability
-  - Better stream lifecycle and error logging
+### 1. Landing Page Redesign
+- Revamped hero section with updated messaging and layout
+- Added new sections: agent showcase, comparison, AI models, pricing, testimonials, use cases, CTA
+- Updated navbar, footer, and services section styling
+- Updated next.config.js and layout metadata
 
-### 2. Database Schema + Migrations (Agents + Channels)
-- Added AI agent domain models:
-  - `Agent`, `AgentTool`, `AgentIntegration`, `AgentKnowledgeBase`, `AgentChannel`
-  - `AgentRun`, `AgentMessage`, `AgentSubscription`
-- Added channel system models:
-  - `Channel`, `ChannelAgent`, `ChannelChatRoom`, `ChannelMessage`
-- Linked users and knowledge bases to the new agent/channel relations.
-- Added migrations:
-  - `20260517135402_add_ai_agent_portal`
-  - `20260517160955_add_channels_and_avatar_color`
-  - `20260517162400_fix_agent_cascade_delete`
-  - `20260518004904_simplify_channel_model`
-  - `20260518150500_restore_channel_chat_rooms`
-- Added `prisma/seed-agents.ts` for agent seed/setup data.
-- Added `bcryptjs` dependency for agent/auth related flows.
+### 2. MCP Tools Integration
+- Added full MCP module (client, registry, OAuth, controllers) in API
+- MCP server management API with CRUD and connect/disconnect lifecycle
+- OAuth credential management for workspace integrations (Google, etc.)
+- Refactored `agent-tool.service` to dynamically load MCP tool schemas
+- Added `@modelcontextprotocol/sdk` dependency
+- Frontend: MCP connect dialog, integrations panel, `use-mcp` hook, MCP types
+- Updated integrations tab with MCP server management UI
+- Added workspace integrations settings panel
+- New env vars: `MCP_ENCRYPTION_KEY`, `API_PUBLIC_URL`, `CHAT_APP_URL`
+- Database: `mcp_servers`, `agent_mcp_servers`, `workspace_oauth_credentials` tables
 
-### 3. API Backend Modules (Agents + Channels)
-- Registered new modules in app bootstrap:
-  - `AgentModule`
-  - `ChannelModule`
-- Added comprehensive agent backend implementation:
-  - Agent CRUD
-  - Agent run/chat flow
-  - Agent tool and memory services
-- Added channel backend implementation:
-  - Channel management and chat services
-  - Channel integrations and GoWA webhook handling
+### 3. Agent Builder & Service Improvements
+- Enhanced `agent-memory.service` with workspace memory context injection
+- Improved `agent-run.service` with extended tool iterations and memory policy
+- Added new agent management endpoints
+- Multi-step agent builder wizard UI (identity → instructions → tools → review)
+- Refactored agent listing page with improved actions
+- Simplified new-agent-page with builder wizard flow
+- Added agent settings panel and workspace settings components
+- Added sonner toast notifications
 
-### 4. Chat Frontend: AI Agents Portal
-- Added new route group and pages under `apps/chat/src/app/agents`:
-  - Agent list, create, detail, explore, and per-agent chat pages
-- Added agent-focused UI components and tabs:
-  - Settings, tools, sub-agents, knowledge, deployments, integrations
-- Added new hooks and client state modules:
-  - `use-agents`, `use-agent-chat`, `use-channels`, `use-channel-chat`
-  - `agent-store`
-- Updated sidebar/navigation to expose AI Agents and related sections.
-- Added knowledge and memory pages aligned with the new navigation model.
+### 4. Channel Chat Enhancements
+- Workspace memory context injection in channel chat
+- Memory policy instruction for persistent task recall
+- MCP tool schema integration in channel chat tool building
+- Usage tracking (token counting) per channel chat response
+- Increased `MAX_TOOL_ITERATIONS` from 6 to 30
+- Refactored portal controller to simplify session management
 
-### 5. Branding Update
-- Renamed product references from **Revonyx** to **Renovix AI** in:
-  - Chat metadata and UI copy
-  - System knowledge defaults
-  - Seeded identity prompts
-  - README branding references
+### 5. Database Schema Updates
+- Added `tokensUsed` (BigInt) field to `AgentSubscription`
+- Added `McpServer` model for MCP server configuration
+- Added `AgentMcpServer` junction model
+- Added `WorkspaceOAuthCredential` model
+- Migration: `20260524100000_add_tokens_used_to_subscriptions`
 
-### 6. Documentation
-- Added strategy and test planning docs:
-  - `AGENT_CHAT_IMPROVEMENT_PLAN.md`
-  - `AGENT_SUBAGENT_SIMPLE_TEST.md`
-  - `AI_AGENT_PORTAL_STRATEGY.md`
+### 6. Misc Fixes & Improvements
+- Fixed xlsx converter for better spreadsheet handling
+- Updated together.adapter with improved model routing
+- Updated chat-sidebar navigation and styling
+- Fixed kb-upload-dialog interaction issues
+- Improved server-team-sidebar workspace display
+- Added API public URL config to chat lib
 
+### 7. Strategy Documentation
+- Added `AGENT_GUARDRAILS_STRATEGY.md` for agent safety constraints
+- Added `AGENT_NOTIFICATION_REMINDER_STRATEGY.md` for scheduled notifications
 ## Commit Breakdown
-1. `feat(api): add provider tool-calling and together reliability`
-2. `feat(db): add ai agents and channel schema with migrations`
-3. `feat(api): add ai agent and channel backend modules`
-4. `feat(chat): add ai agents and channel portal interface`
-5. `chore(brand): rename Revonyx to Renovix AI`
-6. `docs(agent): add ai agent portal strategy and test notes`
+1. `feat(landing): redesign landing page with new sections`
+2. `feat(mcp): add MCP tools integration with OAuth support`
+3. `feat(agent): improve agent builder UI and backend services`
+4. `feat(channel): integrate memory, MCP tools, and usage tracking in channel chat`
+5. `feat(db): add token usage tracking and MCP schema models`
+6. `fix(api,chat): misc improvements and bug fixes`
+7. `docs: add agent guardrails and notification/reminder strategies`
 
 ## Migration / Deployment Notes
-1. Run Prisma migrations before deploying this branch.
-2. Ensure any environment variables used by channel integrations/webhooks are configured.
+1. Run Prisma migrations before deploying (`20260522143721_add_mcp_servers`, `20260523092916_add_workspace_oauth_credentials`, `20260524100000_add_tokens_used_to_subscriptions`).
+2. Set new environment variables: `MCP_ENCRYPTION_KEY`, `API_PUBLIC_URL`, `CHAT_APP_URL`.
+3. Install new dependency: `@modelcontextprotocol/sdk`.
 3. Run or include `seed-agents.ts` where agent bootstrap data is required.
 
 ## Testing Notes
