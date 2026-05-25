@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils';
 
 const navLinks = [
   { href: '#services', label: 'Features' },
-  { href: '#how-it-works', label: 'How It Works' },
-  { href: '#', label: 'Pricing' },
-  { href: '#', label: 'Docs' },
-  { href: 'http://localhost:4300', label: 'Chat' },
+  { href: '#agents', label: 'AI Agents' },
+  { href: '#models', label: 'Models' },
+  { href: '#pricing', label: 'Pricing' },
+  { href: '#use-cases', label: 'Use Cases' },
 ];
 
 export function Navbar() {
@@ -35,9 +35,9 @@ export function Navbar() {
         {/* Logo */}
         <a href="/" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-            <span className="text-sm font-bold text-white">P</span>
+            <span className="text-sm font-bold text-white">R</span>
           </div>
-          <span className="text-lg font-bold text-white">Performa AI</span>
+          <span className="text-lg font-bold text-white">Renovix AI</span>
         </a>
 
         {/* Desktop links */}
@@ -62,7 +62,7 @@ export function Navbar() {
             Sign In
           </a>
           <a
-            href="#"
+            href={process.env.NEXT_PUBLIC_CHAT_URL}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
           >
             Get Started
@@ -98,7 +98,7 @@ export function Navbar() {
               Sign In
             </a>
             <a
-              href="#"
+              href={process.env.NEXT_PUBLIC_CHAT_URL}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-center text-sm font-semibold text-white"
             >
               Get Started

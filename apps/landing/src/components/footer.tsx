@@ -11,13 +11,13 @@ export function Footer() {
           <div className="sm:col-span-2 lg:col-span-1">
             <div className="mb-4 flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-                <span className="text-sm font-bold text-white">P</span>
+                <span className="text-sm font-bold text-white">R</span>
               </div>
-              <span className="text-lg font-bold text-white">Performa AI</span>
+              <span className="text-lg font-bold text-white">Renovix AI</span>
             </div>
             <p className="max-w-xs text-sm text-gray-400 leading-relaxed">
-              Unified AI API platform with pay-per-use billing. Access every
-              model through one endpoint.
+              Your intelligent AI chat platform. Chat with powerful models,
+              deploy custom agents, and automate your workflow.
             </p>
           </div>
 
@@ -31,18 +31,18 @@ export function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#how-it-works" className="text-gray-400 transition-colors hover:text-white">
-                  How It Works
+                <a href="#agents" className="text-gray-400 transition-colors hover:text-white">
+                  AI Agents
                 </a>
               </li>
               <li>
-                <a href="#" className="text-gray-400 transition-colors hover:text-white">
+                <a href="#pricing" className="text-gray-400 transition-colors hover:text-white">
                   Pricing
                 </a>
               </li>
               <li>
-                <a href="#" className="text-gray-400 transition-colors hover:text-white">
-                  API Docs
+                <a href="#models" className="text-gray-400 transition-colors hover:text-white">
+                  Models
                 </a>
               </li>
             </ul>

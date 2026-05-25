@@ -12,6 +12,9 @@ const nextConfig = {
   // See: https://nx.dev/recipes/next/next-config-setup
   nx: {},
   output: 'standalone',
+  env: {
+    NEXT_PUBLIC_CHAT_URL: process.env.NEXT_PUBLIC_CHAT_URL || 'http://localhost:4300',
+  },
 };
 
 const plugins = [

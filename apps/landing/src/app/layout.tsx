@@ -2,13 +2,13 @@ import './global.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Performa AI — One API. Every Model. Pay Only What You Use.',
+  title: 'Renovix AI — Your Intelligent Chat & AI Agent Platform',
   description:
-    'Unified AI API platform with pay-per-request billing. Access Llama, Qwen, Mistral and more through a single endpoint.',
+    'Chat with powerful AI models, deploy custom agents, and automate your daily workflow. The next-generation AI platform built for productivity.',
   openGraph: {
-    title: 'Performa AI — Unified AI API Platform',
+    title: 'Renovix AI — Chat, Create, Automate',
     description:
-      'Access top-tier LLMs through one endpoint. No subscriptions. Pay only what you use.',
+      'Your all-in-one AI platform. Chat naturally, build custom agents, and supercharge your workflow.',
     type: 'website',
   },
 };
