@@ -11,9 +11,10 @@ import { ProviderRouter } from "../providers/provider-router";
 import { AgentToolService } from "./agent-tool.service";
 import { AgentMemoryService } from "./agent-memory.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
-import type { Decimal } from "@prisma/client/runtime/client";
+import { UsageService } from "../usage/usage.service";
+import { Decimal } from "@prisma/client/runtime/client";
 
-const MAX_TOOL_ITERATIONS = 8;
+const MAX_TOOL_ITERATIONS = 15;
 
 interface ToolCall {
   id: string;
@@ -55,6 +56,7 @@ export class AgentRunService {
     private readonly toolService: AgentToolService,
     private readonly memoryService: AgentMemoryService,
     private readonly knowledge: KnowledgeService,
+    private readonly usage: UsageService,
   ) {}
 
   async chat(
@@ -74,6 +76,7 @@ export class AgentRunService {
         tools: { where: { enabled: true } },
         knowledgeBases: true,
         integrations: { where: { status: "connected" } },
+        mcpServers: { include: { mcpServer: true } },
         subAgents: {
           where: { status: "active" },
           select: {
@@ -135,13 +138,18 @@ export class AgentRunService {
       options?.documentFormat,
     );
 
-    // Build tool schemas (auto-inject delegation for parent agents)
-    const toolSchemas = this.toolService.buildToolSchemas(agent.tools, {
-      injectDelegation:
-        agent.agentType === "parent" && agent.subAgents?.length > 0,
-    });
+    // Build tool schemas including MCP tools (auto-inject delegation for parent agents)
+    const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
+      agent.tools,
+      agentId,
+      {
+        injectDelegation:
+          agent.agentType === "parent" && agent.subAgents?.length > 0,
+      },
+    );
 
     // Execute LLM with tool loop
+    const loopStart = Date.now();
     const result = await this.executeLLMLoop(
       context,
       messages,
@@ -149,6 +157,7 @@ export class AgentRunService {
       run.id,
       agent,
     );
+    const loopLatency = Date.now() - loopStart;
 
     // Save assistant message
     await this.prisma.agentMessage.create({
@@ -160,6 +169,34 @@ export class AgentRunService {
         cost: result.totalCost,
       },
     });
+
+    // Log usage to usage_logs table
+    const pricing = await this.registry.getUserPrice(context.model);
+    const cost = pricing
+      ? new Decimal(result.totalInputTokens)
+          .mul(pricing.inputPrice)
+          .add(new Decimal(result.totalOutputTokens).mul(pricing.outputPrice))
+      : new Decimal(0);
+
+    this.usage
+      .logUsage({
+        userId,
+        model: context.model,
+        inputTokens: result.totalInputTokens,
+        outputTokens: result.totalOutputTokens,
+        cost,
+        latencyMs: loopLatency,
+        provider: context.provider,
+      })
+      .catch((err) => this.logger.error("Failed to log agent usage", err));
+
+    // Deduct actual tokens from subscription quota
+    this.deductTokenQuota(userId, result.totalTokens).catch((err) =>
+      this.logger.error("Failed to deduct token quota", err),
+    );
+
+    // Cleanup MCP connections
+    await this.toolService.cleanupMcpConnections();
 
     // Extract and store memory asynchronously
     this.memoryService
@@ -205,6 +242,7 @@ export class AgentRunService {
         tools: { where: { enabled: true } },
         knowledgeBases: true,
         integrations: { where: { status: "connected" } },
+        mcpServers: { include: { mcpServer: true } },
         subAgents: {
           where: { status: "active" },
           select: {
@@ -275,11 +313,15 @@ export class AgentRunService {
       message,
     );
 
-    // Build tool schemas (auto-inject delegation for parent agents)
-    const toolSchemas = this.toolService.buildToolSchemas(agent.tools, {
-      injectDelegation:
-        agent.agentType === "parent" && agent.subAgents?.length > 0,
-    });
+    // Build tool schemas including MCP tools (auto-inject delegation for parent agents)
+    const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
+      agent.tools,
+      agentId,
+      {
+        injectDelegation:
+          agent.agentType === "parent" && agent.subAgents?.length > 0,
+      },
+    );
 
     return {
       run,
@@ -300,6 +342,9 @@ export class AgentRunService {
     let iterations = 0;
     let currentMessages = [...messages];
     let totalTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    const streamStartTime = Date.now();
     const shouldForceDelegation = this.shouldForceDelegation(
       messages,
       toolSchemas,
@@ -395,6 +440,8 @@ export class AgentRunService {
 
             if (parsed.usage) {
               totalTokens += parsed.usage.total_tokens || 0;
+              totalInputTokens += parsed.usage.prompt_tokens || 0;
+              totalOutputTokens += parsed.usage.completion_tokens || 0;
             }
           } catch {
             // non-JSON chunk
@@ -454,6 +501,15 @@ export class AgentRunService {
             },
           });
 
+          // Log usage
+          this.logStreamUsage(
+            context,
+            totalInputTokens,
+            totalOutputTokens,
+            totalTokens,
+            streamStartTime,
+          );
+
           return;
         }
 
@@ -472,6 +528,15 @@ export class AgentRunService {
             tokens: totalTokens,
           },
         });
+
+        // Log usage
+        this.logStreamUsage(
+          context,
+          totalInputTokens,
+          totalOutputTokens,
+          totalTokens,
+          streamStartTime,
+        );
 
         return;
       }
@@ -523,6 +588,7 @@ export class AgentRunService {
               toolCall.function.name,
               args,
               agent,
+              context.userId,
             );
           }
 
@@ -569,6 +635,60 @@ export class AgentRunService {
         "I've reached the maximum number of tool iterations. Here's what I have so far.",
       totalTokens,
     };
+
+    // Log usage
+    this.logStreamUsage(
+      context,
+      totalInputTokens,
+      totalOutputTokens,
+      totalTokens,
+      streamStartTime,
+    );
+  }
+
+  private logStreamUsage(
+    context: AgentContext,
+    inputTokens: number,
+    outputTokens: number,
+    totalTokens: number,
+    startTime: number,
+  ) {
+    const latencyMs = Date.now() - startTime;
+    // If provider didn't return separate input/output, estimate from total
+    const estimatedInput = inputTokens || Math.round(totalTokens * 0.7);
+    const estimatedOutput = outputTokens || totalTokens - estimatedInput;
+
+    this.registry
+      .getUserPrice(context.model)
+      .then((pricing) => {
+        const cost = pricing
+          ? new Decimal(estimatedInput)
+              .mul(pricing.inputPrice)
+              .add(new Decimal(estimatedOutput).mul(pricing.outputPrice))
+          : new Decimal(0);
+
+        this.usage
+          .logUsage({
+            userId: context.userId,
+            model: context.model,
+            inputTokens: estimatedInput,
+            outputTokens: estimatedOutput,
+            cost,
+            latencyMs,
+            provider: context.provider,
+          })
+          .catch((err) =>
+            this.logger.error("Failed to log agent stream usage", err),
+          );
+      })
+      .catch((err) =>
+        this.logger.error("Failed to get pricing for usage log", err),
+      );
+
+    // Deduct actual tokens from subscription quota
+    this.deductTokenQuota(context.userId, totalTokens).catch((err) =>
+      this.logger.error("Failed to deduct token quota (stream)", err),
+    );
   }
 
   async listRuns(userId: string, agentId: string) {
@@ -637,6 +757,8 @@ export class AgentRunService {
     let iterations = 0;
     let currentMessages = [...messages];
     let totalTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
     let totalCost: Decimal | undefined;
     const shouldForceDelegation = this.shouldForceDelegation(
       messages,
@@ -678,6 +800,8 @@ export class AgentRunService {
       const elapsed = Date.now() - startTime;
 
       totalTokens += response.usage?.total_tokens || 0;
+      totalInputTokens += response.usage?.prompt_tokens || 0;
+      totalOutputTokens += response.usage?.completion_tokens || 0;
 
       // Log token usage
       this.logger.log(
@@ -706,6 +830,7 @@ export class AgentRunService {
                 toolCall.function.name,
                 args,
                 agent,
+                context.userId,
               );
             }
 
@@ -733,6 +858,8 @@ export class AgentRunService {
               agent,
             ),
             totalTokens,
+            totalInputTokens,
+            totalOutputTokens,
             totalCost,
           };
         }
@@ -741,6 +868,8 @@ export class AgentRunService {
         return {
           content: choice.message?.content || "",
           totalTokens,
+          totalInputTokens,
+          totalOutputTokens,
           totalCost,
         };
       }
@@ -750,6 +879,8 @@ export class AgentRunService {
       content:
         "I've reached the maximum number of processing steps. Here's what I have so far.",
       totalTokens,
+      totalInputTokens,
+      totalOutputTokens,
       totalCost,
     };
   }
@@ -1080,15 +1211,17 @@ export class AgentRunService {
         );
       }
 
-      const limits: Record<string, number> = {
-        starter: 500,
-        pro: 3000,
-        enterprise: 10000,
+      // Token-based limits per tier (monthly)
+      const tokenLimits: Record<string, bigint> = {
+        starter: BigInt(1_000_000), // 1M tokens
+        pro: BigInt(5_000_000), // 5M tokens
+        enterprise: BigInt(20_000_000), // 20M tokens
       };
 
-      const maxMessages = limits[subscription.tier] ?? 500;
+      const maxTokens = tokenLimits[subscription.tier] ?? BigInt(1_000_000);
 
-      if (subscription.messagesUsed >= maxMessages) {
+      if (BigInt(subscription.tokensUsed) >= maxTokens) {
+        // Check if user has credit balance for overage
         const user = await tx.user.findUnique({
           where: { id: userId },
           select: { balance: true },
@@ -1096,17 +1229,31 @@ export class AgentRunService {
 
         if (!user || Number(user.balance) <= 0) {
           throw new BadRequestException(
-            "Monthly message limit reached and insufficient credit balance for overage. Please upgrade or top up.",
+            "Monthly token limit reached and insufficient credit balance for overage. Please upgrade or top up.",
           );
         }
       }
 
+      // Increment message count for tracking (backward compat)
       await tx.agentSubscription.update({
         where: { userId },
         data: { messagesUsed: { increment: 1 } },
       });
 
       return subscription;
+    });
+  }
+
+  /**
+   * Deduct actual tokens used after a request completes.
+   * Called post-request with the real token count from the LLM response.
+   */
+  private async deductTokenQuota(userId: string, tokensUsed: number) {
+    if (tokensUsed <= 0) return;
+
+    await this.prisma.agentSubscription.update({
+      where: { userId },
+      data: { tokensUsed: { increment: tokensUsed } },
     });
   }
 }

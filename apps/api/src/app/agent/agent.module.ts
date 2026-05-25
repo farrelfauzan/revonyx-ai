@@ -11,6 +11,7 @@ import { UsageModule } from "../usage/usage.module";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
 import { ConfigRegistryModule } from "../config/config-registry.module";
 import { DocumentModule } from "../document/document.module";
+import { McpModule } from "../mcp/mcp.module";
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { DocumentModule } from "../document/document.module";
     KnowledgeModule,
     ConfigRegistryModule,
     DocumentModule,
+    McpModule,
   ],
   controllers: [AgentController, AgentRunController],
   providers: [
@@ -28,6 +30,11 @@ import { DocumentModule } from "../document/document.module";
     AgentToolService,
     AgentMemoryService,
   ],
-  exports: [AgentService, AgentRunService, AgentToolService],
+  exports: [
+    AgentService,
+    AgentRunService,
+    AgentToolService,
+    AgentMemoryService,
+  ],
 })
 export class AgentModule {}

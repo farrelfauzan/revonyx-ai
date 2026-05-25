@@ -389,3 +389,32 @@ export function useCloneTemplate() {
     },
   });
 }
+
+// ─── Avatar Upload ───
+
+export function useUploadAgentAvatar() {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return apiClient.post<{ icon: string }>(
+        "/channels/upload-icon",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+    },
+  });
+}
+
+// ─── Prompt Generation ───
+
+export function useGeneratePrompt() {
+  return useMutation({
+    mutationFn: async (data: { name: string; description?: string }) => {
+      return apiClient.post<{ prompt: string }>(
+        "/agents/generate-prompt",
+        data,
+      );
+    },
+  });
+}

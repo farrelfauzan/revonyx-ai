@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { useState, type ReactNode } from "react";
 import { AuthHydrator } from "@/components/auth-hydrator";
 
@@ -18,6 +19,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <TooltipProvider>
         <AuthHydrator />
         {children}
+        <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
