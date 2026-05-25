@@ -17,10 +17,10 @@ export class XlsxConverter implements DocumentConverter {
     if (tables.length > 0) {
       // Each markdown table becomes a sheet
       tables.forEach((table, i) => {
-        const sheetName = table.title || `Sheet${i + 1}`;
-        const sheet = workbook.addWorksheet(
-          sheetName.substring(0, 31), // Excel sheet name limit
+        const sheetName = this.sanitizeSheetName(
+          table.title || `Sheet${i + 1}`,
         );
+        const sheet = workbook.addWorksheet(sheetName);
 
         // Header row
         const headerRow = sheet.addRow(
@@ -115,5 +115,24 @@ export class XlsxConverter implements DocumentConverter {
       .replace(/`(.+?)`/g, "$1")
       .replace(/\[(.+?)\]\(.+?\)/g, "$1")
       .replace(/~~(.+?)~~/g, "$1");
+  }
+
+  /**
+   * Sanitize worksheet name to comply with Excel rules:
+   * - Remove invalid chars: * ? : \ / [ ]
+   * - Remove emojis and other non-BMP characters
+   * - Trim to 31 characters max
+   * - Fallback to "Sheet" if result is empty
+   */
+  private sanitizeSheetName(name: string): string {
+    const sanitized = name
+      .replace(/[*?:\\/[\]]/g, "")
+      .replace(
+        /[\u{1F000}-\u{1FFFF}|\u{2600}-\u{27BF}|\u{FE00}-\u{FE0F}|\u{200D}]/gu,
+        "",
+      )
+      .trim()
+      .substring(0, 31);
+    return sanitized || "Sheet";
   }
 }

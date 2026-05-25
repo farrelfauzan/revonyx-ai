@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCreateKnowledgeBase, useUploadKBFile } from "@/hooks/use-knowledge";
+import { toast } from "sonner";
 
 interface KBUploadDialogProps {
   open: boolean;
@@ -60,8 +61,9 @@ export function KBUploadDialog({ open, onClose }: KBUploadDialogProps) {
       });
       setKbId(kb.id);
       setStep("upload");
+      toast.success("Knowledge base created");
     } catch {
-      // error handled by mutation
+      toast.error("Failed to create knowledge base");
     }
   };
 
@@ -91,8 +93,9 @@ export function KBUploadDialog({ open, onClose }: KBUploadDialogProps) {
       });
       setUploadResult(result);
       setStep("done");
+      toast.success("Document uploaded successfully");
     } catch {
-      // error handled by mutation
+      toast.error("Failed to upload document");
     }
   };
 

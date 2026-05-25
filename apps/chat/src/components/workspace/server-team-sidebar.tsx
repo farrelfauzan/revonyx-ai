@@ -48,13 +48,21 @@ interface ServerTeamSidebarProps {
   channelId: string;
   isOwner: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
-export function ServerTeamSidebar({ channelId, isOwner, onClose }: ServerTeamSidebarProps) {
+export function ServerTeamSidebar({ channelId, isOwner, onClose, embedded }: ServerTeamSidebarProps) {
   const { data: wsData, isLoading } = useChannelWorkspace(channelId);
   const createWorkspace = useCreateChannelWorkspace();
 
   if (isLoading) {
+    if (embedded) {
+      return (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+        </div>
+      );
+    }
     return (
       <SidebarShell onClose={onClose}>
         <div className="flex-1 flex items-center justify-center">
@@ -65,6 +73,29 @@ export function ServerTeamSidebar({ channelId, isOwner, onClose }: ServerTeamSid
   }
 
   if (!wsData?.exists) {
+    if (embedded) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+          <Users className="w-10 h-10 text-zinc-600" />
+          <p className="text-sm text-zinc-400">Team workspace not enabled</p>
+          {isOwner && (
+            <Button
+              size="sm"
+              onClick={() =>
+                createWorkspace.mutate(channelId, {
+                  onSuccess: () => toast.success("Team workspace enabled!"),
+                  onError: () => toast.error("Failed to enable workspace"),
+                })
+              }
+              disabled={createWorkspace.isPending}
+            >
+              {createWorkspace.isPending && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+              Enable Team
+            </Button>
+          )}
+        </div>
+      );
+    }
     return (
       <SidebarShell onClose={onClose}>
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center">
@@ -88,6 +119,10 @@ export function ServerTeamSidebar({ channelId, isOwner, onClose }: ServerTeamSid
         </div>
       </SidebarShell>
     );
+  }
+
+  if (embedded) {
+    return <TeamContent channelId={channelId} isOwner={isOwner} />;
   }
 
   return (

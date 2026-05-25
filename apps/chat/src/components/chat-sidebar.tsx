@@ -31,6 +31,7 @@ import {
   useDeleteConversation,
 } from "@/hooks/use-conversations";
 import { fetchConversation } from "@/lib/api";
+import { toast } from "sonner";
 import type { ConversationSummary } from "@/lib/api";
 
 export function AppSidebar() {
@@ -136,11 +137,12 @@ function ChatsContent() {
   const handleDeleteConversation = async (id: string) => {
     try {
       await deleteMutation.mutateAsync(id);
+      toast.success("Conversation deleted");
       if (conversationId === id) {
         clearChat();
       }
     } catch {
-      // silently fail
+      toast.error("Failed to delete conversation");
     }
   };
 
