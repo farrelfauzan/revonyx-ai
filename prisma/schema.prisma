@@ -30,6 +30,7 @@ model User {
   workspaceInvitesSent WorkspaceInvite[] @relation("InviteSender")
   mcpCredentials UserMcpCredential[]
   guardrailViolations GuardrailViolation[]
+  reminders       Reminder[]
 
   @@map("users")
 }
@@ -255,6 +256,7 @@ model Agent {
   channelAgents   ChannelAgent[]
   guardrailViolations GuardrailViolation[]
   guardrailConfig     GuardrailConfig?
+  reminders       Reminder[]
   createdAt       DateTime        @default(now()) @db.Timestamptz()
   updatedAt       DateTime        @updatedAt @db.Timestamptz()
 
@@ -387,6 +389,7 @@ model Channel {
   color     String?        @default("#6366f1")
   agents    ChannelAgent[]
   rooms     ChannelChatRoom[]
+  reminders Reminder[]
   workspace Workspace?
   createdAt DateTime       @default(now()) @db.Timestamptz()
   updatedAt DateTime       @updatedAt @db.Timestamptz()
@@ -416,6 +419,7 @@ model ChannelChatRoom {
   channel   Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
   name      String           @default("general")
   messages  ChannelMessage[]
+  reminders Reminder[]
   createdAt DateTime         @default(now()) @db.Timestamptz()
   updatedAt DateTime         @updatedAt @db.Timestamptz()
 
@@ -607,4 +611,49 @@ model GuardrailConfig {
   updatedAt            DateTime @updatedAt @db.Timestamptz()
 
   @@map("guardrail_configs")
+}
+
+// ─── Reminder / Notification Models ─────────────────────────────────────────────
+
+enum ReminderStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+model Reminder {
+  id              String          @id @default(uuid())
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id])
+  agentId         String          @map("agent_id")
+  agent           Agent           @relation(fields: [agentId], references: [id])
+  channelId       String          @map("channel_id")
+  channel         Channel         @relation(fields: [channelId], references: [id])
+  chatRoomId      String          @map("chat_room_id")
+  chatRoom        ChannelChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+
+  // Reminder content
+  prompt          String          // The instruction/question the agent should execute
+  description     String?         // Human-readable label (e.g., "Daily expense summary")
+
+  // Schedule (cron expression)
+  cronExpression  String          @map("cron_expression") // e.g., "0 8 * * *"
+  timezone        String          @default("UTC")
+
+  // Execution tracking
+  nextRunAt       DateTime        @map("next_run_at") @db.Timestamptz()
+  lastRunAt       DateTime?       @map("last_run_at") @db.Timestamptz()
+  consecutiveFailures Int         @default(0) @map("consecutive_failures")
+  lastError       String?         @map("last_error")
+  status          ReminderStatus  @default(ACTIVE)
+
+  // Metadata
+  createdAt       DateTime        @default(now()) @db.Timestamptz()
+  updatedAt       DateTime        @updatedAt @db.Timestamptz()
+  deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz()
+
+  @@index([status, nextRunAt])
+  @@index([userId])
+  @@map("reminders")
 }

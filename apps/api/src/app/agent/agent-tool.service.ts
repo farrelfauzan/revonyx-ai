@@ -3,6 +3,8 @@ import { McpClientService } from "../mcp/mcp-client.service";
 import { McpService } from "../mcp/mcp.service";
 import { McpUserService } from "../mcp/mcp-user.service";
 import { AgentMemoryService } from "./agent-memory.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { CronExpressionParser } from "cron-parser";
 
 interface ToolSchema {
   type: "function";
@@ -40,6 +42,7 @@ export class AgentToolService {
     private readonly mcpService: McpService,
     private readonly mcpUserService: McpUserService,
     private readonly memoryService: AgentMemoryService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ─── Built-in tool definitions (internal tools that need direct DB/process access) ───
@@ -159,6 +162,40 @@ export class AgentToolService {
             },
           },
           required: ["language", "code"],
+        },
+      },
+    },
+    create_reminder: {
+      type: "function",
+      function: {
+        name: "create_reminder",
+        description:
+          "Create a scheduled reminder that will automatically execute a prompt and send the response to the user at the specified time. Use this when the user asks to be reminded about something on a schedule.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description:
+                "The instruction/question to execute on schedule (e.g., 'Give me a summary of my expenses')",
+            },
+            cronExpression: {
+              type: "string",
+              description:
+                "Cron expression for the schedule (e.g., '0 8 * * *' for every day at 8 AM, '0 9 * * 1' for every Monday at 9 AM)",
+            },
+            description: {
+              type: "string",
+              description:
+                "Short human-readable label for the reminder (e.g., 'Daily expense summary')",
+            },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone (e.g., 'Asia/Jakarta', 'America/New_York'). Defaults to UTC if not specified.",
+            },
+          },
+          required: ["prompt", "cronExpression"],
         },
       },
     },
@@ -292,6 +329,8 @@ export class AgentToolService {
           return this.executeMemoryStore(args, agent, userId, channelId);
         case "code_exec":
           return this.executeCodeExec(args);
+        case "create_reminder":
+          return this.executeCreateReminder(args, agent, userId, channelId);
         default:
           return `Tool "${toolName}" is not available. It may require an MCP integration to be connected.`;
       }
@@ -433,5 +472,76 @@ export class AgentToolService {
       }
     }
     return `Language "${args.language}" execution is not yet supported.`;
+  }
+
+  private async executeCreateReminder(
+    args: {
+      prompt: string;
+      cronExpression: string;
+      description?: string;
+      timezone?: string;
+    },
+    agent: any,
+    userId?: string,
+    channelId?: string,
+  ): Promise<string> {
+    if (!userId) {
+      return "Error: Unable to create reminder — user context unavailable.";
+    }
+    if (!channelId) {
+      return "Error: Unable to create reminder — channel context unavailable.";
+    }
+    if (!args.prompt || !args.cronExpression) {
+      return "Error: Both 'prompt' and 'cronExpression' are required to create a reminder.";
+    }
+
+    // Validate cron expression
+    const timezone = args.timezone || "UTC";
+    let nextRunAt: Date;
+    try {
+      const interval = CronExpressionParser.parse(args.cronExpression, { tz: timezone });
+      nextRunAt = interval.next().toDate();
+    } catch (err: any) {
+      return `Error: Invalid cron expression "${args.cronExpression}". ${err.message}`;
+    }
+
+    try {
+      // Find or create chat room for this channel
+      let chatRoom = await this.prisma.channelChatRoom.findFirst({
+        where: { channelId, name: "general" },
+      });
+      if (!chatRoom) {
+        chatRoom = await this.prisma.channelChatRoom.create({
+          data: { channelId, name: "general" },
+        });
+      }
+
+      const reminder = await this.prisma.reminder.create({
+        data: {
+          userId,
+          agentId: agent.id,
+          channelId,
+          chatRoomId: chatRoom.id,
+          prompt: args.prompt,
+          description: args.description || null,
+          cronExpression: args.cronExpression,
+          timezone,
+          nextRunAt,
+        },
+      });
+
+      this.logger.log(
+        `[create_reminder] Created reminder ${reminder.id} for user=${userId} agent=${agent.id} cron="${args.cronExpression}" tz=${timezone}`,
+      );
+
+      const nextRunFormatted = nextRunAt.toLocaleString("en-US", {
+        timeZone: timezone,
+      });
+
+      return `Successfully created reminder "${args.description || args.prompt.slice(0, 50)}". Next execution: ${nextRunFormatted} (${timezone}). Reminder ID: ${reminder.id}`;
+    } catch (err: any) {
+      this.logger.error(`[create_reminder] Failed: ${err.message}`, err.stack);
+      return `Failed to create reminder: ${err.message}`;
+    }
   }
 }
