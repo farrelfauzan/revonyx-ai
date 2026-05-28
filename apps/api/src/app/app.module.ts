@@ -22,6 +22,7 @@ import { ChannelModule } from "./channel/channel.module";
 import { EmailModule } from "./email/email.module";
 import { WorkspaceModule } from "./workspace/workspace.module";
 import { McpModule } from "./mcp/mcp.module";
+import { GuardrailModule } from "./guardrail/guardrail.module";
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { McpModule } from "./mcp/mcp.module";
     EmailModule,
     WorkspaceModule,
     McpModule,
+    GuardrailModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

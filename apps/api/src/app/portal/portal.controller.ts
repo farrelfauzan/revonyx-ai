@@ -27,6 +27,7 @@ import { UsageService } from "../usage/usage.service";
 import { PromptTuningService } from "../chat/prompt-tuning.service";
 import { ConversationService } from "../chat/conversation.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
+import { GuardrailService } from "../guardrail/guardrail.service";
 import {
   ChatCompletionRequest,
   ChatCompletionRequestSchema,
@@ -50,6 +51,7 @@ export class PortalController {
     private readonly promptTuning: PromptTuningService,
     private readonly conversation: ConversationService,
     private readonly knowledge: KnowledgeService,
+    private readonly guardrail: GuardrailService,
   ) {}
 
   @Post("completions")
@@ -380,6 +382,32 @@ export class PortalController {
       throw new InternalServerErrorException("No models available");
     }
 
+    // Input guardrail check — extract last user message
+    const lastUserMsg = body.messages.filter((m) => m.role === "user").pop();
+    if (lastUserMsg) {
+      const inputCheck = await this.guardrail.checkInput(
+        typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content
+          : JSON.stringify(lastUserMsg.content),
+        identity.sessionId,
+      );
+      if (inputCheck.blocked) {
+        res.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+        const chunk = JSON.stringify({
+          choices: [{ delta: { content: inputCheck.userMessage } }],
+        });
+        res.raw.write(`data: ${chunk}\n\n`);
+        res.raw.write("data: [DONE]\n\n");
+        res.raw.end();
+        return;
+      }
+    }
+
     // Stream response
     res.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -433,6 +461,32 @@ export class PortalController {
   ) {
     const user = identity.user!;
     const startTime = Date.now();
+
+    // Input guardrail check — extract last user message
+    const lastUserMsg = body.messages.filter((m) => m.role === "user").pop();
+    if (lastUserMsg) {
+      const inputCheck = await this.guardrail.checkInput(
+        typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content
+          : JSON.stringify(lastUserMsg.content),
+        user.id,
+      );
+      if (inputCheck.blocked) {
+        res.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+        const chunk = JSON.stringify({
+          choices: [{ delta: { content: inputCheck.userMessage } }],
+        });
+        res.raw.write(`data: ${chunk}\n\n`);
+        res.raw.write("data: [DONE]\n\n");
+        res.raw.end();
+        return;
+      }
+    }
 
     // Validate model
     const modelConfig = await this.registry.getModel(body.model);
