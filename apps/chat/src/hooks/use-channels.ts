@@ -23,6 +23,7 @@ export interface ChannelAgentLink {
 
 export interface Channel {
   id: string;
+  userId: string;
   name: string;
   icon?: string;
   color?: string;
@@ -39,6 +40,12 @@ export interface ChannelMessage {
   content: string;
   tokens?: number;
   createdAt: string;
+  document?: {
+    format: string;
+    url: string;
+    filename: string;
+    expiresAt: string;
+  };
 }
 
 // ─── Query Keys ───
@@ -176,6 +183,22 @@ export function useClearMessages() {
       queryClient.invalidateQueries({
         queryKey: channelKeys.messages(channelId, agentId),
       });
+    },
+  });
+}
+
+export function useUploadChannelIcon() {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return apiClient.post<{ icon: string }>(
+        "/channels/upload-icon",
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        },
+      );
     },
   });
 }

@@ -17,7 +17,10 @@ export function useChannelChat(
   const queryClient = useQueryClient();
 
   const sendMessage = useCallback(
-    async (message: string) => {
+    async (
+      message: string,
+      options?: { output_format?: "pdf" | "docx" | "xlsx" },
+    ) => {
       if (!channelId || !agentId || isStreaming) return;
 
       // Add user message immediately
@@ -35,6 +38,10 @@ export function useChannelChat(
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      let documentData:
+        | { format: string; url: string; filename: string; expiresAt: string }
+        | undefined;
+
       try {
         const jwt =
           typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
@@ -47,7 +54,12 @@ export function useChannelChat(
               "Content-Type": "application/json",
               ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
             },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({
+              message,
+              ...(options?.output_format
+                ? { output_format: options.output_format }
+                : {}),
+            }),
             signal: controller.signal,
           },
         );
@@ -83,6 +95,10 @@ export function useChannelChat(
 
               if (parsed.status) continue;
               if (parsed.done) continue;
+              if (parsed.document) {
+                documentData = parsed.document;
+                continue;
+              }
               if (parsed.error) {
                 throw new Error(parsed.error.message);
               }
@@ -111,6 +127,7 @@ export function useChannelChat(
             role: "assistant",
             content: fullContent,
             createdAt: new Date().toISOString(),
+            ...(documentData ? { document: documentData } : {}),
           };
           setMessages((prev) => [...prev, assistantMsg]);
         }

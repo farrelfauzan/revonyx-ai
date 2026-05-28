@@ -1,32 +1,44 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Globe, Cpu, CreditCard, ShieldCheck } from 'lucide-react';
+import { MessageSquare, Brain, Shield, Zap, Layers, History } from 'lucide-react';
 
 const services = [
   {
-    icon: Globe,
-    title: 'Unified API Access',
+    icon: MessageSquare,
+    title: 'Natural Chat Interface',
     description:
-      'One endpoint for all leading LLMs — Llama, Qwen, Mistral and more. No need to manage multiple provider integrations.',
+      'Conversational AI that feels natural. Multi-turn context, markdown rendering, code highlighting, and file uploads — all in a beautiful interface.',
   },
   {
-    icon: CreditCard,
-    title: 'Pay-Per-Request Billing',
+    icon: Brain,
+    title: 'Persistent Memory',
     description:
-      'Only pay for what you use. No monthly subscriptions, no hidden fees. Top up your balance and start making requests instantly.',
+      'Your AI remembers your preferences, past conversations, and context. The more you chat, the more personalized and helpful it becomes.',
   },
   {
-    icon: Cpu,
-    title: 'Smart Model Routing',
+    icon: Layers,
+    title: 'Multi-Model Switching',
     description:
-      'Automatic failover between providers ensures high availability. If one provider is down, your requests are seamlessly routed.',
+      'Switch between AI models mid-conversation. Use the best model for each task — creative writing, coding, analysis, or brainstorming.',
   },
   {
-    icon: ShieldCheck,
+    icon: Zap,
+    title: 'Custom Environments',
+    description:
+      'Create personalized AI environments with custom instructions, knowledge bases, and workflows tailored to your specific needs.',
+  },
+  {
+    icon: History,
+    title: 'Full Chat History',
+    description:
+      'All your conversations are saved and searchable. Pick up where you left off, revisit old chats, or share conversations with your team.',
+  },
+  {
+    icon: Shield,
     title: 'Enterprise-Grade Security',
     description:
-      'Hashed API keys, rate limiting, input validation, and full audit trails. Your data and requests are protected at every layer.',
+      'End-to-end encryption, SOC 2 compliance, and granular access controls. Your data stays private and secure at every layer.',
   },
 ];
 
@@ -51,15 +63,15 @@ export function ServicesSection() {
           transition={{ duration: 0.5 }}
         >
           <h2 className="mb-4 text-3xl font-bold text-white sm:text-4xl">
-            Everything You Need to Ship AI Features
+            A Chat Platform Built for Productivity
           </h2>
           <p className="mx-auto max-w-2xl text-gray-400">
-            A complete platform designed so you can focus on building great
-            products — not managing AI infrastructure.
+            More than just chat — a complete AI workspace with memory, custom
+            environments, and powerful features that grow with you.
           </p>
         </motion.div>
 
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((service, i) => (
             <motion.div
               key={service.title}

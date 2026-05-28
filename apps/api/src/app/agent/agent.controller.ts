@@ -61,6 +61,23 @@ export class AgentController {
     return this.agentService.listPublic();
   }
 
+  @Post("generate-prompt")
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  async generatePrompt(@Body() body: unknown, @Req() req: any) {
+    const name = (body as any)?.name;
+    const description = (body as any)?.description;
+    if (!name || typeof name !== "string") {
+      throw new BadRequestException({
+        error: {
+          message: "Agent name is required to generate a prompt",
+          type: "invalid_request_error",
+        },
+      });
+    }
+    return this.agentService.generatePrompt(name, description);
+  }
+
   @Post("clone/:templateId")
   @HttpCode(201)
   @Throttle({ default: { ttl: 60000, limit: 10 } })

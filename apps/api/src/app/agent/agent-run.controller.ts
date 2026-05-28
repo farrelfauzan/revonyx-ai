@@ -18,13 +18,19 @@ import { AuthGuard } from "@nestjs/passport";
 import type { FastifyReply } from "fastify";
 import { AgentRunService } from "./agent-run.service";
 import { AgentChatSchema } from "./dto/agent-chat.dto";
+import { DocumentService } from "../document/document.service";
+import { ProviderRouter } from "../providers/provider-router";
 
 @Controller("agents")
 @UseGuards(AuthGuard("jwt"))
 export class AgentRunController {
   private readonly logger = new Logger(AgentRunController.name);
 
-  constructor(private readonly runService: AgentRunService) {}
+  constructor(
+    private readonly runService: AgentRunService,
+    private readonly documentService: DocumentService,
+    private readonly providerRouter: ProviderRouter,
+  ) {}
 
   @Post(":id/chat")
   @HttpCode(200)
@@ -46,8 +52,12 @@ export class AgentRunController {
       });
     }
 
-    const { message, sessionId } = parsed.data;
+    const { message, sessionId, output_format } = parsed.data;
     const userId = req.user.userId;
+
+    // Classify document intent via LLM
+    const detectedFormat =
+      output_format || (await this.classifyDocumentIntent(message));
 
     // Setup SSE headers (frontend expects this format)
     res.raw.writeHead(200, {
@@ -62,20 +72,61 @@ export class AgentRunController {
 
     try {
       // Emit status
-      res.raw.write(`data: ${JSON.stringify({ status: "understanding" })}\n\n`);
+      if (detectedFormat) {
+        res.raw.write(
+          `data: ${JSON.stringify({ status: "generating_document" })}\n\n`,
+        );
+      } else {
+        res.raw.write(
+          `data: ${JSON.stringify({ status: "understanding" })}\n\n`,
+        );
+      }
 
       // Use non-streaming chat (reliable, no stream issues)
-      const result = await this.runService.chat(userId, id, message, sessionId);
+      const result = await this.runService.chat(
+        userId,
+        id,
+        message,
+        sessionId,
+        detectedFormat ? { documentFormat: detectedFormat } : undefined,
+      );
 
       this.logger.log(
         `[Controller] chat completed | runId=${result.runId} contentLen=${result.message.content?.length ?? 0}`,
       );
 
-      // Send the full content as a single chunk (frontend accumulates delta)
-      const chunk = JSON.stringify({
-        choices: [{ delta: { content: result.message.content } }],
-      });
-      res.raw.write(`data: ${chunk}\n\n`);
+      // Generate document if format detected
+      if (detectedFormat && result.message.content) {
+        try {
+          const document = await this.documentService.generate(
+            result.message.content,
+            detectedFormat,
+          );
+          // Send short summary instead of full content
+          const summary = this.buildDocumentSummary(message, detectedFormat);
+          const chunk = JSON.stringify({
+            choices: [{ delta: { content: summary } }],
+          });
+          res.raw.write(`data: ${chunk}\n\n`);
+          res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
+        } catch (err: any) {
+          this.logger.error(
+            `Document generation failed: ${err.message}`,
+            err.stack,
+          );
+          // Fallback: show full content
+          const chunk = JSON.stringify({
+            choices: [{ delta: { content: result.message.content } }],
+          });
+          res.raw.write(`data: ${chunk}\n\n`);
+        }
+      } else {
+        // No document — send full content as usual
+        const chunk = JSON.stringify({
+          choices: [{ delta: { content: result.message.content } }],
+        });
+        res.raw.write(`data: ${chunk}\n\n`);
+      }
 
       // Send session info
       res.raw.write(
@@ -121,5 +172,46 @@ export class AgentRunController {
     @Req() req: any,
   ) {
     return this.runService.deleteRun(req.user.userId, id, runId);
+  }
+
+  private async classifyDocumentIntent(
+    message: string,
+  ): Promise<string | null> {
+    try {
+      const response = await this.providerRouter.chat("together", {
+        model: "classifier",
+        providerId: "deepseek-ai/DeepSeek-V4-Pro",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You classify user messages. If the user is asking to generate/create/export a document, reply with ONLY the format: pdf, docx, or xlsx. If not, reply with: none. No explanation.",
+          },
+          { role: "user", content: message },
+        ],
+        max_tokens: 200,
+        temperature: 0,
+      });
+      const raw = response.choices[0]?.message?.content ?? "";
+      this.logger.log(`[classifyDocumentIntent] raw="${raw}"`);
+      const lower = raw.toLowerCase();
+      if (lower.includes("pdf")) return "pdf";
+      if (lower.includes("docx")) return "docx";
+      if (lower.includes("xlsx")) return "xlsx";
+      return null;
+    } catch (err: any) {
+      this.logger.warn(`Document intent classification failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  private buildDocumentSummary(message: string, format: string): string {
+    const formatLabels: Record<string, string> = {
+      pdf: "PDF",
+      docx: "Word document",
+      xlsx: "Excel spreadsheet",
+    };
+    const label = formatLabels[format] || format.toUpperCase();
+    return `Here's the ${label} you requested:`;
   }
 }

@@ -60,7 +60,7 @@ export class TogetherAdapter implements ProviderAdapter {
     }
 
     // Retry with exponential backoff for transient errors
-    const maxRetries = 3;
+    const maxRetries = 6;
     let lastError: any;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -73,11 +73,18 @@ export class TogetherAdapter implements ProviderAdapter {
               Authorization: `Bearer ${this.apiKey}`,
               "Content-Type": "application/json",
             },
-            timeout: 90000,
+            timeout: 300000,
           },
         );
 
         const data = response.data;
+
+        // Debug: log raw message for short responses
+        if (params.max_tokens && params.max_tokens <= 50) {
+          this.logger.log(
+            `[debug] raw choice: ${JSON.stringify(data.choices?.[0]?.message)}`,
+          );
+        }
 
         return {
           id: data.id,
@@ -100,12 +107,17 @@ export class TogetherAdapter implements ProviderAdapter {
       } catch (err: any) {
         lastError = err;
         const status = err.response?.status;
+        const isTimeout =
+          err.code === "ECONNABORTED" || err.message?.includes("timeout");
 
-        // Only retry on transient errors (500, 502, 503, 429)
-        if (status && [500, 502, 503, 429].includes(status)) {
-          const delay = Math.min(1000 * 2 ** attempt, 8000);
+        // Only retry on transient errors (500, 502, 503, 429) or timeouts
+        if (isTimeout || (status && [500, 502, 503, 429].includes(status))) {
+          const delay =
+            status === 429
+              ? Math.min(5000 * 2 ** attempt, 60000)
+              : Math.min(2000 * 2 ** attempt, 15000);
           this.logger.warn(
-            `[Together chat] Attempt ${attempt + 1}/${maxRetries} failed (${status}). Retrying in ${delay}ms...`,
+            `[Together chat] Attempt ${attempt + 1}/${maxRetries} failed (${isTimeout ? "timeout" : status}). Retrying in ${delay}ms...`,
           );
           await new Promise((r) => setTimeout(r, delay));
           continue;

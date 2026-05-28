@@ -6,6 +6,8 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { ModelRegistryService } from "../config/model-registry.service";
+import { ProviderRouter } from "../providers/provider-router";
 import type { CreateAgentDto } from "./dto/create-agent.dto";
 import type { UpdateAgentDto } from "./dto/update-agent.dto";
 
@@ -13,7 +15,11 @@ import type { UpdateAgentDto } from "./dto/update-agent.dto";
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registry: ModelRegistryService,
+    private readonly providerRouter: ProviderRouter,
+  ) {}
 
   private slugify(name: string): string {
     return name
@@ -520,14 +526,23 @@ export class AgentService {
     const subscription = await this.prisma.agentSubscription.findUnique({
       where: { userId },
     });
-    return { subscription: subscription || null };
+    if (!subscription) {
+      return { subscription: null };
+    }
+
+    return {
+      subscription: {
+        ...subscription,
+        tokensUsed: subscription.tokensUsed.toString(),
+      },
+    };
   }
 
   async subscribe(userId: string, tier: string) {
     const pricing: Record<string, number> = {
-      starter: 9,
-      pro: 29,
-      enterprise: 99,
+      starter: 19,
+      pro: 49,
+      enterprise: 149,
     };
 
     const price = pricing[tier];
@@ -547,9 +562,15 @@ export class AgentService {
           currentPeriodStart: new Date(),
           currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           messagesUsed: 0,
+          tokensUsed: 0,
         },
       });
-      return { subscription: updated };
+      return {
+        subscription: {
+          ...updated,
+          tokensUsed: updated.tokensUsed.toString(),
+        },
+      };
     }
 
     // Create new subscription
@@ -563,7 +584,39 @@ export class AgentService {
       },
     });
 
-    return { subscription };
+    return {
+      subscription: {
+        ...subscription,
+        tokensUsed: subscription.tokensUsed.toString(),
+      },
+    };
+  }
+
+  // ─── Prompt Generation ───
+
+  async generatePrompt(name: string, description?: string) {
+    const userMessage = description
+      ? `Agent name: "${name}"\nDescription: "${description}"`
+      : `Agent name: "${name}"`;
+
+    const response = await this.providerRouter.chat("together", {
+      providerId: "deepseek-ai/DeepSeek-V4-Pro",
+      model: "deepseek-ai/DeepSeek-V4-Pro",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a prompt engineering assistant. Given an AI agent's name and optional description, generate a concise system prompt (1 paragraph, 3-5 sentences) that defines the agent's role, personality, and behavior. Be specific and actionable. Output ONLY the system prompt text, no explanation or formatting. Do not wrap in quotes.",
+        },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.9,
+      max_tokens: 1024,
+      reasoning_effort: "high",
+    });
+
+    const content = response.choices?.[0]?.message?.content?.trim() || "";
+    return { prompt: content };
   }
 
   // ─── Helpers ───

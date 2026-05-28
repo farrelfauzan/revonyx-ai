@@ -123,51 +123,88 @@ export class DocumentService {
   }
 
   private inferNameFromMarkdown(markdown: string): string {
-    const headingMatch = markdown.match(/^#{1,6}\s+(.+)$/m);
-    if (headingMatch?.[1]) {
-      return this.sanitizeFilename(this.stripInlineMarkdown(headingMatch[1]));
-    }
+    const summary = this.summarizeMarkdownForTitle(markdown);
+    return this.sanitizeFilename(summary);
+  }
 
+  private summarizeMarkdownForTitle(markdown: string): string {
+    const headingMatch = markdown.match(/^#{1,6}\s+(.+)$/m);
+    const heading = headingMatch?.[1]
+      ? this.stripInlineMarkdown(headingMatch[1])
+      : "";
+
+    let firstSentence = "";
     const lines = markdown.split("\n");
     for (const line of lines) {
       const normalized = line.trim();
       if (!normalized) {
         continue;
       }
-
-      // Skip table separators like |---|:---:|
+      if (/^#{1,6}\s+/.test(normalized)) {
+        continue;
+      }
       if (/^[\s|:-]+$/.test(normalized)) {
         continue;
       }
 
-      // Prefer a readable line from table-style content.
-      if (normalized.includes("|")) {
-        const cells = normalized
-          .split("|")
-          .map((cell) => cell.trim())
-          .filter(Boolean)
-          .map((cell) => this.stripInlineMarkdown(cell));
-        const candidate = this.sanitizeFilename(cells.join(" "));
-        if (candidate) {
-          return candidate;
-        }
+      const plain = this.stripInlineMarkdown(
+        normalized
+          .replace(/^>\s*/, "")
+          .replace(/^[-*+]\s+/, "")
+          .replace(/^\d+\.\s+/, "")
+          .replace(/^\[[ xX]\]\s+/, ""),
+      );
+      if (!plain) {
+        continue;
       }
 
-      const textCandidate = normalized
-        .replace(/^>\s*/, "")
-        .replace(/^[-*+]\s+/, "")
-        .replace(/^\d+\.\s+/, "")
-        .replace(/^\[[ xX]\]\s+/, "");
-      const candidate = this.sanitizeFilename(
-        this.stripInlineMarkdown(textCandidate),
-      );
-
-      if (candidate) {
-        return candidate;
+      firstSentence = plain.split(/[.!?]/)[0]?.trim() || plain;
+      if (firstSentence) {
+        break;
       }
     }
 
-    return "";
+    const source = [heading, firstSentence].filter(Boolean).join(" ").trim();
+    if (!source) {
+      return "";
+    }
+
+    const stopWords = new Set([
+      "a",
+      "an",
+      "and",
+      "as",
+      "at",
+      "by",
+      "for",
+      "from",
+      "in",
+      "into",
+      "of",
+      "on",
+      "or",
+      "the",
+      "to",
+      "with",
+      "this",
+      "that",
+      "these",
+      "those",
+      "report",
+      "guide",
+      "overview",
+      "comprehensive",
+    ]);
+
+    const words = source
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 1);
+
+    const focused = words.filter((word) => !stopWords.has(word));
+    const selected = (focused.length >= 3 ? focused : words).slice(0, 6);
+    return selected.join(" ");
   }
 
   private stripKnownExtension(filename: string): string {

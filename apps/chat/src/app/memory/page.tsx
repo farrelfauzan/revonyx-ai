@@ -45,7 +45,7 @@ export default function MemoryPage() {
         <Lock className="h-12 w-12 text-muted-foreground mb-4" />
         <h1 className="text-2xl font-bold mb-2">Memory</h1>
         <p className="text-muted-foreground text-center max-w-md">
-          Revonix AI will automatically remember your interests and preferences as
+          Renovix AI will automatically remember your interests and preferences as
           you chat. Sign in to get started.
         </p>
         <Link href="/login">
@@ -74,7 +74,7 @@ export default function MemoryPage() {
       <div className="flex-1 p-6 max-w-4xl mx-auto w-full overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <p className="text-sm text-muted-foreground">
-            Revonix AI automatically remembers your interests and preferences as
+            Renovix AI automatically remembers your interests and preferences as
             you chat.
           </p>
           {memories.length > 0 && (
@@ -103,7 +103,7 @@ export default function MemoryPage() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Brain className="h-12 w-12 text-muted-foreground/40 mb-4" />
             <p className="text-muted-foreground">
-              No memories yet. Start chatting and Revonix AI will remember what
+              No memories yet. Start chatting and Renovix AI will remember what
               matters.
             </p>
           </div>

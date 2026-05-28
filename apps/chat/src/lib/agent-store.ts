@@ -80,6 +80,12 @@ export interface AgentMessage {
   tokens?: number;
   cost?: string;
   createdAt: string;
+  document?: {
+    format: string;
+    url: string;
+    filename: string;
+    expiresAt: string;
+  };
 }
 
 export interface AgentBuilderDraft {

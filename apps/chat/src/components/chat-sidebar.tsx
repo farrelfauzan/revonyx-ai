@@ -31,6 +31,7 @@ import {
   useDeleteConversation,
 } from "@/hooks/use-conversations";
 import { fetchConversation } from "@/lib/api";
+import { toast } from "sonner";
 import type { ConversationSummary } from "@/lib/api";
 
 export function AppSidebar() {
@@ -59,7 +60,7 @@ export function AppSidebar() {
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-purple-600">
               <Sparkles className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="font-semibold text-sm">Revonix AI</span>
+            <span className="font-semibold text-sm">Renovix AI</span>
           </div>
           <button
             onClick={toggleSidebar}
@@ -136,11 +137,12 @@ function ChatsContent() {
   const handleDeleteConversation = async (id: string) => {
     try {
       await deleteMutation.mutateAsync(id);
+      toast.success("Conversation deleted");
       if (conversationId === id) {
         clearChat();
       }
     } catch {
-      // silently fail
+      toast.error("Failed to delete conversation");
     }
   };
 

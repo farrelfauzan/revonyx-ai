@@ -13,9 +13,13 @@ export class S3Service {
   private readonly logger = new Logger(S3Service.name);
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly cdnDomain: string;
 
   constructor(private readonly configService: ConfigService) {
     this.bucket = this.configService.getOrThrow<string>("S3_BUCKET");
+    this.cdnDomain = this.normalizeDomain(
+      this.configService.getOrThrow<string>("S3_CDN_DOMAIN"),
+    );
 
     this.client = new S3Client({
       region: this.configService.getOrThrow<string>("S3_REGION"),
@@ -111,6 +115,36 @@ export class S3Service {
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     });
-    return getSignedUrl(this.client, command, { expiresIn });
+    const signedUrl = await getSignedUrl(this.client, command, { expiresIn });
+    return this.toCdnUrl(signedUrl);
+  }
+
+  private toCdnUrl(url: string): string {
+    if (!this.cdnDomain) {
+      return url;
+    }
+
+    try {
+      const parsed = new URL(url);
+      parsed.host = this.cdnDomain;
+      parsed.protocol = "https:";
+      return parsed.toString();
+    } catch {
+      this.logger.warn("Failed to rewrite signed URL to CDN domain");
+      return url;
+    }
+  }
+
+  private normalizeDomain(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    try {
+      return new URL(trimmed).host;
+    } catch {
+      return trimmed.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    }
   }
 }

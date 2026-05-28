@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Zap, ArrowRight } from 'lucide-react';
+import { MessageSquare, ArrowRight, Bot, Sparkles } from 'lucide-react';
 import { CircuitBackground } from './circuit-background';
 
 export function HeroSection() {
@@ -16,8 +16,8 @@ export function HeroSection() {
           transition={{ duration: 0.6 }}
         >
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-4 py-1.5 text-sm text-indigo-300">
-            <Zap className="h-4 w-4" />
-            <span>Unified AI API Platform</span>
+            <Sparkles className="h-4 w-4" />
+            <span>Next-Generation AI Chat Platform</span>
           </div>
         </motion.div>
 
@@ -27,12 +27,12 @@ export function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
         >
-          One API.{' '}
+          Chat. Create.{' '}
           <span className="bg-linear-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
-            Every Model.
+            Automate.
           </span>
           <br />
-          Pay Only What You Use.
+          Your AI, Your Way.
         </motion.h1>
 
         <motion.p
@@ -41,9 +41,9 @@ export function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          Access top-tier LLMs — Llama, Qwen, Mistral and more — through a single
-          endpoint. No subscriptions. No commitments. Just simple pay-per-request
-          pricing.
+          Renovix AI is your intelligent workspace — chat with powerful AI models,
+          deploy custom agents that handle your daily tasks, and build personalized
+          environments that work the way you do.
         </motion.p>
 
         <motion.div
@@ -53,21 +53,22 @@ export function HeroSection() {
           transition={{ duration: 0.6, delay: 0.3 }}
         >
           <a
-            href="#get-started"
+            href={process.env.NEXT_PUBLIC_CHAT_URL}
             className="group inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
           >
-            Get Started
+            Start Chatting Free
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </a>
           <a
-            href="#how-it-works"
+            href="#agents"
             className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-6 py-3 text-sm font-semibold text-gray-300 transition-colors hover:border-gray-500 hover:text-white"
           >
-            See How It Works
+            <Bot className="h-4 w-4" />
+            Explore AI Agents
           </a>
         </motion.div>
 
-        {/* Code snippet preview */}
+        {/* Chat UI Preview */}
         <motion.div
           className="mx-auto mt-16 max-w-3xl overflow-hidden rounded-xl border border-gray-800 bg-gray-900/80 text-left shadow-2xl shadow-indigo-500/5 backdrop-blur"
           initial={{ opacity: 0, y: 30 }}
@@ -78,27 +79,49 @@ export function HeroSection() {
             <span className="h-3 w-3 rounded-full bg-red-500/60" />
             <span className="h-3 w-3 rounded-full bg-yellow-500/60" />
             <span className="h-3 w-3 rounded-full bg-green-500/60" />
-            <span className="ml-2 text-xs text-gray-500">request.sh</span>
+            <span className="ml-2 text-xs text-gray-500">Renovix AI Chat</span>
           </div>
-          <pre className="overflow-x-auto p-5 text-sm leading-relaxed">
-            <code>
-              <span className="text-green-400">curl</span>
-              <span className="text-gray-300"> https://api.performa.ai/v1/chat/completions \</span>
-              {'\n'}
-              <span className="text-gray-500">  -H </span>
-              <span className="text-amber-300">{'"Authorization: Bearer sk_live_..."'}</span>
-              <span className="text-gray-300"> \</span>
-              {'\n'}
-              <span className="text-gray-500">  -H </span>
-              <span className="text-amber-300">{'"Content-Type: application/json"'}</span>
-              <span className="text-gray-300"> \</span>
-              {'\n'}
-              <span className="text-gray-500">  -d </span>
-              <span className="text-amber-300">{"'"}</span>
-              <span className="text-violet-300">{'{"model":"llama-3.3-70b","messages":[{"role":"user","content":"Hello!"}]}'}</span>
-              <span className="text-amber-300">{"'"}</span>
-            </code>
-          </pre>
+          <div className="p-5 space-y-4">
+            {/* User message */}
+            <div className="flex justify-end">
+              <div className="rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2.5 text-sm text-white max-w-[70%]">
+                Help me write a marketing email for our product launch
+              </div>
+            </div>
+            {/* AI response */}
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/20">
+                <MessageSquare className="h-4 w-4 text-violet-400" />
+              </div>
+              <div className="rounded-2xl rounded-bl-md bg-gray-800 px-4 py-2.5 text-sm text-gray-300 max-w-[70%]">
+                <p>Here&apos;s a compelling marketing email for your launch:</p>
+                <p className="mt-2 text-indigo-300">Subject: Something big is coming...</p>
+                <p className="mt-1 text-gray-400">Writing your personalized email...</p>
+                <span className="inline-block mt-1 h-4 w-1 animate-pulse bg-indigo-400 rounded-full" />
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Trust badges */}
+        <motion.div
+          className="mt-12 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.8 }}
+        >
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            No credit card required
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            Multiple AI models
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            Custom AI agents
+          </span>
         </motion.div>
       </div>
     </section>

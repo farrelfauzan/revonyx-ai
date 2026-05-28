@@ -3,7 +3,6 @@ import {
   Post,
   Get,
   Delete,
-  Patch,
   Body,
   Param,
   Query,
@@ -28,9 +27,7 @@ import { UsageService } from "../usage/usage.service";
 import { PromptTuningService } from "../chat/prompt-tuning.service";
 import { ConversationService } from "../chat/conversation.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
-import { DocumentService } from "../document/document.service";
-import { UserMemoryService } from "../memory/user-memory.service";
-import { MemoryExtractionService } from "../memory/memory-extraction.service";
+import { GuardrailService } from "../guardrail/guardrail.service";
 import {
   ChatCompletionRequest,
   ChatCompletionRequestSchema,
@@ -54,9 +51,7 @@ export class PortalController {
     private readonly promptTuning: PromptTuningService,
     private readonly conversation: ConversationService,
     private readonly knowledge: KnowledgeService,
-    private readonly documentService: DocumentService,
-    private readonly memoryService: UserMemoryService,
-    private readonly memoryExtraction: MemoryExtractionService,
+    private readonly guardrail: GuardrailService,
   ) {}
 
   @Post("completions")
@@ -347,83 +342,6 @@ export class PortalController {
     await this.knowledge.deleteChunk(identity.user.id, id, chunkId);
   }
 
-  // ─── User Memory Endpoints ───
-
-  @Get("memory")
-  @UseGuards(PortalGuard)
-  async listMemories(@Req() req: any) {
-    const identity: PortalIdentity = req.portalIdentity;
-    if (!identity.user) {
-      throw new BadRequestException("Authentication required");
-    }
-
-    const memories = await this.memoryService.listAll(identity.user.id);
-    return { data: memories };
-  }
-
-  @Patch("memory/:id")
-  @UseGuards(PortalGuard)
-  async updateMemory(
-    @Param("id", ParseUUIDPipe) id: string,
-    @Body() body: unknown,
-    @Req() req: any,
-  ) {
-    const identity: PortalIdentity = req.portalIdentity;
-    if (!identity.user) {
-      throw new BadRequestException("Authentication required");
-    }
-
-    const { content, isUserPinned } = body as {
-      content?: string;
-      isUserPinned?: boolean;
-    };
-
-    if (content === undefined && isUserPinned === undefined) {
-      throw new BadRequestException(
-        "At least one field (content, isUserPinned) is required",
-      );
-    }
-
-    const updated = await this.memoryService.update(identity.user.id, id, {
-      content,
-      isUserPinned,
-    });
-
-    if (!updated) {
-      throw new NotFoundException("Memory not found");
-    }
-
-    return updated;
-  }
-
-  @Delete("memory/:id")
-  @UseGuards(PortalGuard)
-  @HttpCode(204)
-  async deleteMemory(@Param("id", ParseUUIDPipe) id: string, @Req() req: any) {
-    const identity: PortalIdentity = req.portalIdentity;
-    if (!identity.user) {
-      throw new BadRequestException("Authentication required");
-    }
-
-    const deleted = await this.memoryService.delete(identity.user.id, id);
-    if (!deleted) {
-      throw new NotFoundException("Memory not found");
-    }
-  }
-
-  @Post("memory/clear")
-  @UseGuards(PortalGuard)
-  @HttpCode(200)
-  async clearMemories(@Req() req: any) {
-    const identity: PortalIdentity = req.portalIdentity;
-    if (!identity.user) {
-      throw new BadRequestException("Authentication required");
-    }
-
-    const count = await this.memoryService.clearAll(identity.user.id);
-    return { cleared: count };
-  }
-
   private async handleFreeRequest(
     identity: PortalIdentity,
     body: ChatCompletionRequest,
@@ -443,7 +361,7 @@ export class PortalController {
     }
 
     // Check limit
-    const { allowed } = await this.tierService.canMakeRequest(
+    const { allowed, remaining } = await this.tierService.canMakeRequest(
       identity.sessionId,
     );
     if (!allowed) {
@@ -464,6 +382,32 @@ export class PortalController {
       throw new InternalServerErrorException("No models available");
     }
 
+    // Input guardrail check — extract last user message
+    const lastUserMsg = body.messages.filter((m) => m.role === "user").pop();
+    if (lastUserMsg) {
+      const inputCheck = await this.guardrail.checkInput(
+        typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content
+          : JSON.stringify(lastUserMsg.content),
+        identity.sessionId,
+      );
+      if (inputCheck.blocked) {
+        res.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+        const chunk = JSON.stringify({
+          choices: [{ delta: { content: inputCheck.userMessage } }],
+        });
+        res.raw.write(`data: ${chunk}\n\n`);
+        res.raw.write("data: [DONE]\n\n");
+        res.raw.end();
+        return;
+      }
+    }
+
     // Stream response
     res.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -477,20 +421,12 @@ export class PortalController {
       res.raw.write(`data: ${JSON.stringify({ status: "understanding" })}\n\n`);
 
       // Apply prompt tuning
-      const { tunedMessages, matchedTemplate } =
-        await this.promptTuning.applyTuning(body.messages);
+      const { tunedMessages } = await this.promptTuning.applyTuning(
+        body.messages,
+      );
 
-      const outputFormat =
-        body.output_format || matchedTemplate?.outputFormat || null;
-
-      // Emit status: generating (or generating_document if document intent detected)
-      if (outputFormat) {
-        res.raw.write(
-          `data: ${JSON.stringify({ status: "generating_document" })}\n\n`,
-        );
-      } else {
-        res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
-      }
+      // Emit status: generating
+      res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
 
       const stream = this.providerRouter.chatStream(cheapest.provider, {
         model: cheapest.slug,
@@ -498,36 +434,10 @@ export class PortalController {
         messages: tunedMessages,
         temperature: body.temperature,
         max_tokens: body.max_tokens ?? 4096,
-        reasoning_effort: body.reasoning_effort,
       });
 
-      let fullContent = "";
       for await (const chunk of stream) {
         res.raw.write(`data: ${chunk}\n\n`);
-        try {
-          const parsed = JSON.parse(chunk);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) fullContent += delta;
-        } catch {
-          // ignore
-        }
-      }
-
-      // Generate document if output_format detected
-      if (outputFormat && fullContent) {
-        try {
-          const document = await this.documentService.generate(
-            fullContent,
-            outputFormat,
-            this.extractLatestUserPrompt(body.messages),
-          );
-          res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
-        } catch (err: any) {
-          this.logger.error(
-            `Document generation failed: ${err.message}`,
-            err.stack,
-          );
-        }
       }
 
       res.raw.write("data: [DONE]\n\n");
@@ -551,6 +461,32 @@ export class PortalController {
   ) {
     const user = identity.user!;
     const startTime = Date.now();
+
+    // Input guardrail check — extract last user message
+    const lastUserMsg = body.messages.filter((m) => m.role === "user").pop();
+    if (lastUserMsg) {
+      const inputCheck = await this.guardrail.checkInput(
+        typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content
+          : JSON.stringify(lastUserMsg.content),
+        user.id,
+      );
+      if (inputCheck.blocked) {
+        res.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+        const chunk = JSON.stringify({
+          choices: [{ delta: { content: inputCheck.userMessage } }],
+        });
+        res.raw.write(`data: ${chunk}\n\n`);
+        res.raw.write("data: [DONE]\n\n");
+        res.raw.end();
+        return;
+      }
+    }
 
     // Validate model
     const modelConfig = await this.registry.getModel(body.model);
@@ -613,20 +549,13 @@ export class PortalController {
       }
 
       // Apply prompt tuning (with user KB context)
-      const { tunedMessages, matchedTemplate } =
-        await this.promptTuning.applyTuning(body.messages, user.id);
+      const { tunedMessages } = await this.promptTuning.applyTuning(
+        body.messages,
+        user.id,
+      );
 
-      const outputFormat =
-        body.output_format || matchedTemplate?.outputFormat || null;
-
-      // Emit status: generating (or generating_document if document intent detected)
-      if (outputFormat) {
-        res.raw.write(
-          `data: ${JSON.stringify({ status: "generating_document" })}\n\n`,
-        );
-      } else {
-        res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
-      }
+      // Emit status: generating
+      res.raw.write(`data: ${JSON.stringify({ status: "generating" })}\n\n`);
 
       const stream = this.providerRouter.chatStream(modelConfig.provider, {
         model: body.model,
@@ -634,7 +563,6 @@ export class PortalController {
         messages: tunedMessages,
         temperature: body.temperature,
         max_tokens: body.max_tokens ?? 4096,
-        reasoning_effort: body.reasoning_effort,
       });
 
       for await (const chunk of stream) {
@@ -686,31 +614,6 @@ export class PortalController {
         })
         .catch((err) => this.logger.error("Failed to log usage", err));
 
-      let generatedDocument:
-        | {
-            format: string;
-            url: string;
-            filename: string;
-            expiresAt: string;
-            key: string;
-          }
-        | undefined;
-
-      if (outputFormat && fullContent) {
-        try {
-          generatedDocument = await this.documentService.generateWithStorage(
-            fullContent,
-            outputFormat,
-            this.extractLatestUserPrompt(body.messages),
-          );
-        } catch (err: any) {
-          this.logger.error(
-            `Document generation failed: ${err.message}`,
-            err.stack,
-          );
-        }
-      }
-
       // Save conversation for paid users (always store=true)
       let conversationId: string | undefined;
       if (fullContent) {
@@ -720,39 +623,18 @@ export class PortalController {
           body.conversation_id,
         );
 
-        const assistantContent = generatedDocument
-          ? this.buildDocumentResponseText(generatedDocument)
-          : fullContent;
-
         this.conversation
-          .saveMessages(
-            conversationId,
-            body.messages,
-            assistantContent,
-            generatedDocument
-              ? {
-                  format: generatedDocument.format,
-                  filename: generatedDocument.filename,
-                  key: generatedDocument.key,
-                }
-              : undefined,
-          )
+          .saveMessages(conversationId, body.messages, fullContent)
           .then(async () => {
-            if (!body.conversation_id && assistantContent) {
-              await this.conversation.generateTitle(
-                conversationId!,
-                assistantContent,
-              );
+            if (!body.conversation_id) {
+              const firstUserMsg = body.messages.find((m) => m.role === "user");
+              if (firstUserMsg) {
+                await this.conversation.generateTitle(
+                  conversationId!,
+                  firstUserMsg.content,
+                );
+              }
             }
-            console.log(
-              `Conversation ${conversationId} saved for user ${user.id}. Starting memory extraction...`,
-            );
-            // Fire-and-forget memory extraction after conversation is saved
-            this.memoryExtraction
-              .extract(user.id, conversationId!)
-              .catch((err) =>
-                this.logger.error("Memory extraction failed", err),
-              );
           })
           .catch((err) =>
             this.logger.error("Failed to save conversation", err),
@@ -766,16 +648,6 @@ export class PortalController {
         );
       }
 
-      if (generatedDocument) {
-        const document = {
-          format: generatedDocument.format,
-          url: generatedDocument.url,
-          filename: generatedDocument.filename,
-          expiresAt: generatedDocument.expiresAt,
-        };
-        res.raw.write(`data: ${JSON.stringify({ document })}\n\n`);
-      }
-
       res.raw.write("data: [DONE]\n\n");
       res.raw.end();
     } catch (error: any) {
@@ -787,23 +659,5 @@ export class PortalController {
       );
       res.raw.end();
     }
-  }
-
-  private buildDocumentResponseText(document: {
-    format: string;
-    filename: string;
-  }): string {
-    return `I've generated your ${document.format.toUpperCase()} document: **${document.filename}**`;
-  }
-
-  private extractLatestUserPrompt(
-    messages: Array<{ role: string; content: string }>,
-  ): string | undefined {
-    const latestUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "user")
-      ?.content?.trim();
-
-    return latestUserMessage || undefined;
   }
 }

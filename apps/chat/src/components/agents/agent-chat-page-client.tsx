@@ -22,6 +22,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DocumentCard } from "@/components/document-card";
 
 export default function AgentChatPageClient({
   params,
@@ -232,6 +233,7 @@ export default function AgentChatPageClient({
                         >
                           {msg.content}
                         </ReactMarkdown>
+                        {msg.document && <DocumentCard document={msg.document} />}
                       </div>
                     </div>
                   )}

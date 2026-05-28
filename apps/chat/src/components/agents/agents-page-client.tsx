@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   useChannels,
   useChannel,
-  useCreateChannel,
   useDeleteChannel,
   useAddChannelAgent,
   useRemoveChannelAgent,
@@ -13,12 +12,15 @@ import {
   useClearMessages,
 } from "@/hooks/use-channels";
 import { useChannelChat } from "@/hooks/use-channel-chat";
-import { useAgents, useAgentSubscription, useSubscribe } from "@/hooks/use-agents";
+import {
+  useAgents,
+  useAgentSubscription,
+  useSubscribe,
+} from "@/hooks/use-agents";
 import { useAuthStore, useHydrated } from "@/lib/stores";
 import Link from "next/link";
 import {
   Bot,
-  Plus,
   Check,
   MessageSquare,
   Trash2,
@@ -38,6 +40,9 @@ import {
   UserPlus,
   X,
   Compass,
+  Users,
+  Settings,
+  Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,18 +62,46 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion, AnimatePresence } from "framer-motion";
 import { CodeBlock } from "@/components/code-block";
+import { DocumentCard } from "@/components/document-card";
+import { CreateServerDialog } from "@/components/agents/create-server-dialog";
+import { ServerTeamSidebar } from "@/components/workspace/server-team-sidebar";
+import { WorkspaceSettings } from "@/components/settings/workspace-settings";
+import { AgentSettingsPanel } from "@/components/settings/agent-settings-panel";
+import { config } from "@/lib/config";
+
+function isS3Icon(icon: string | null | undefined): boolean {
+  if (!icon) return false;
+  return (
+    icon.includes("/") ||
+    icon.endsWith(".png") ||
+    icon.endsWith(".jpg") ||
+    icon.endsWith(".jpeg") ||
+    icon.endsWith(".webp") ||
+    icon.endsWith(".gif")
+  );
+}
+
+function getIconUrl(icon: string): string {
+  if (icon.startsWith("http")) return icon;
+  return `${config.cdnUrl}/${icon}`;
+}
 
 export default function AgentsPageClient() {
   const hydrated = useHydrated();
   const { isLoggedIn } = useAuthStore();
   const { data: channels, isLoading: channelsLoading } = useChannels();
-  const { data: subscriptionData, isLoading: subLoading } = useAgentSubscription();
+  const { data: subscriptionData, isLoading: subLoading } =
+    useAgentSubscription();
   const subscribeMutation = useSubscribe();
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const selectedServerId = searchParams.get("server");
   const selectedAgentId = searchParams.get("agent");
+  const currentView = searchParams.get("view"); // "settings" or null
+  const effectiveSettingsServerId =
+    selectedServerId || channels?.[0]?.id || null;
+  const [showTeamSidebar, setShowTeamSidebar] = useState(false);
 
   const setSelectedServerId = useCallback(
     (id: string | null) => {
@@ -79,6 +112,7 @@ export default function AgentsPageClient() {
         params.delete("server");
       }
       params.delete("agent");
+      params.delete("view");
       router.replace(`/agents?${params.toString()}`);
     },
     [searchParams, router],
@@ -91,6 +125,21 @@ export default function AgentsPageClient() {
         params.set("agent", id);
       } else {
         params.delete("agent");
+      }
+      params.delete("view");
+      router.replace(`/agents?${params.toString()}`);
+    },
+    [searchParams, router],
+  );
+
+  const setView = useCallback(
+    (view: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (view) {
+        params.set("view", view);
+        params.delete("agent");
+      } else {
+        params.delete("view");
       }
       router.replace(`/agents?${params.toString()}`);
     },
@@ -111,7 +160,8 @@ export default function AgentsPageClient() {
         <Lock className="h-12 w-12 text-muted-foreground mb-4" />
         <h1 className="text-2xl font-bold mb-2">AI Agents</h1>
         <p className="text-muted-foreground text-center max-w-md">
-          Create servers with AI agents that automate your workflow. Sign in to get started.
+          Create servers with AI agents that automate your workflow. Sign in to
+          get started.
         </p>
         <Link href="/login">
           <Button className="mt-4">Sign In</Button>
@@ -139,7 +189,7 @@ export default function AgentsPageClient() {
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Left: Servers (projects) */}
-      <div className="w-[72px] shrink-0 bg-zinc-900 flex flex-col items-center py-3 gap-2 border-r border-zinc-800 overflow-y-auto">
+      <div className="w-18 shrink-0 bg-zinc-900 flex flex-col items-center py-3 gap-2 border-r border-zinc-800 overflow-y-auto">
         <Link href="/">
           <button
             className="w-12 h-12 rounded-2xl flex items-center justify-center bg-zinc-700 text-zinc-300 hover:bg-indigo-600 hover:text-white hover:rounded-xl transition-all mb-2"
@@ -148,6 +198,30 @@ export default function AgentsPageClient() {
             <ArrowLeft className="w-5 h-5" />
           </button>
         </Link>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (currentView === "agent-settings") {
+              params.delete("view");
+            } else {
+              params.set("view", "agent-settings");
+            }
+            params.delete("server");
+            params.delete("agent");
+            router.replace(`/agents?${params.toString()}`);
+          }}
+          className={`w-12 h-12 rounded-2xl transition-all hover:rounded-xl mb-2 ${
+            currentView === "agent-settings"
+              ? "bg-indigo-600 text-white rounded-xl ring-2 ring-white/20 hover:bg-indigo-700"
+              : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600 hover:text-white"
+          }`}
+          title="Agent Settings"
+        >
+          <Settings2 className="w-5 h-5" />
+        </Button>
 
         <div className="w-8 h-px bg-zinc-700 mb-1" />
 
@@ -173,7 +247,15 @@ export default function AgentsPageClient() {
               }}
               title={channel.name}
             >
-              {channel.icon || channel.name.charAt(0).toUpperCase()}
+              {isS3Icon(channel.icon) ? (
+                <img
+                  src={getIconUrl(channel.icon!)}
+                  alt={channel.name}
+                  className="w-full h-full object-cover rounded-2xl"
+                />
+              ) : (
+                channel.icon || channel.name.charAt(0).toUpperCase()
+              )}
             </button>
           ))
         )}
@@ -182,30 +264,55 @@ export default function AgentsPageClient() {
       </div>
 
       {/* Middle: Agent Channels in selected server */}
-      <div className="w-60 shrink-0 bg-zinc-900/50 border-r border-zinc-800 flex flex-col">
-        {selectedServerId ? (
-          <ServerMiddlePanel
-            serverId={selectedServerId}
-            selectedAgentId={selectedAgentId}
-            onSelectAgent={setSelectedAgentId}
-            onDeleteServer={() => {
-              setSelectedServerId(null);
-            }}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 text-sm px-4 text-center gap-3">
-            <Server className="w-10 h-10 text-zinc-600" />
-            <p>Select a server or create one</p>
-            <p className="text-xs text-zinc-600">
-              Servers are projects with AI agents
-            </p>
-          </div>
-        )}
-      </div>
+      {currentView !== "agent-settings" && (
+        <div className="w-60 shrink-0 bg-zinc-900/50 border-r border-zinc-800 flex flex-col">
+          {selectedServerId ? (
+            <ServerMiddlePanel
+              serverId={selectedServerId}
+              selectedAgentId={selectedAgentId}
+              onSelectAgent={setSelectedAgentId}
+              onDeleteServer={() => {
+                setSelectedServerId(null);
+              }}
+              onToggleTeam={() => setShowTeamSidebar((v) => !v)}
+              showTeamSidebar={showTeamSidebar}
+              currentView={currentView}
+              onSetView={setView}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 text-sm px-4 text-center gap-3">
+              <Server className="w-10 h-10 text-zinc-600" />
+              <p>Select a server or create one</p>
+              <p className="text-xs text-zinc-600">
+                Servers are projects with AI agents
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Right: Chat with selected agent */}
+      {/* Right: Chat with selected agent OR Server Settings OR Agent Settings */}
       <div className="flex-1 flex flex-col min-w-0">
-        {selectedServerId && selectedAgentId ? (
+        {currentView === "agent-settings" ? (
+          <AgentSettingsPanel channelId={effectiveSettingsServerId} />
+        ) : selectedServerId && currentView === "settings" ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Settings className="h-5 w-5 text-zinc-400" />
+                <div>
+                  <h2 className="text-lg font-semibold text-zinc-100">
+                    Server Settings
+                  </h2>
+                  <p className="text-xs text-zinc-500">
+                    Manage your server settings, image, team, and integrations
+                  </p>
+                </div>
+              </div>
+              <WorkspaceSettings channelId={selectedServerId} />
+            </div>
+          </div>
+        ) : selectedServerId && selectedAgentId ? (
           <ChannelChatPanel
             channelId={selectedServerId}
             agentId={selectedAgentId}
@@ -223,6 +330,15 @@ export default function AgentsPageClient() {
           </div>
         )}
       </div>
+
+      {/* Far Right: Team Sidebar */}
+      {showTeamSidebar && selectedServerId && (
+        <ServerTeamSidebar
+          channelId={selectedServerId}
+          isOwner={true}
+          onClose={() => setShowTeamSidebar(false)}
+        />
+      )}
     </div>
   );
 }
@@ -232,58 +348,7 @@ export default function AgentsPageClient() {
 // ═══════════════════════════════════════════════════════════
 
 function CreateServerButton() {
-  const [showInput, setShowInput] = useState(false);
-  const [name, setName] = useState("");
-  const createChannel = useCreateChannel();
-
-  const handleCreate = () => {
-    if (!name.trim()) return;
-    createChannel.mutate(
-      { name: name.trim() },
-      {
-        onSuccess: () => {
-          toast.success("Server created!");
-          setName("");
-          setShowInput(false);
-        },
-        onError: () => toast.error("Failed to create server"),
-      },
-    );
-  };
-
-  if (showInput) {
-    return (
-      <div className="flex flex-col items-center gap-1">
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleCreate();
-            if (e.key === "Escape") setShowInput(false);
-          }}
-          placeholder="Name"
-          className="w-11 h-11 rounded-xl bg-zinc-800 text-center text-xs text-white border border-zinc-600 focus:outline-none focus:border-indigo-500"
-        />
-        <button
-          onClick={() => setShowInput(false)}
-          className="text-zinc-500 text-[10px]"
-        >
-          cancel
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => setShowInput(true)}
-      className="w-12 h-12 rounded-2xl flex items-center justify-center bg-zinc-800 text-emerald-400 hover:bg-emerald-600 hover:text-white hover:rounded-xl transition-all"
-      title="Create Server"
-    >
-      <Plus className="w-5 h-5" />
-    </button>
-  );
+  return <CreateServerDialog />;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -295,11 +360,19 @@ function ServerMiddlePanel({
   selectedAgentId,
   onSelectAgent,
   onDeleteServer,
+  onToggleTeam,
+  showTeamSidebar,
+  currentView,
+  onSetView,
 }: {
   serverId: string;
   selectedAgentId: string | null;
   onSelectAgent: (id: string) => void;
   onDeleteServer: () => void;
+  onToggleTeam: () => void;
+  showTeamSidebar: boolean;
+  currentView: string | null;
+  onSetView: (view: string | null) => void;
 }) {
   const { data: channel, isLoading } = useChannel(serverId);
   const router = useRouter();
@@ -370,7 +443,8 @@ function ServerMiddlePanel({
   };
 
   const removingAgentName =
-    channel.agents.find((link) => link.agentId === removeAgentId)?.agent.name || "this agent";
+    channel.agents.find((link) => link.agentId === removeAgentId)?.agent.name ||
+    "this agent";
 
   return (
     <>
@@ -378,10 +452,18 @@ function ServerMiddlePanel({
       <div className="p-3 border-b border-zinc-800">
         <div className="flex items-center gap-2 mb-1">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white overflow-hidden"
             style={{ backgroundColor: channel.color || "#6366f1" }}
           >
-            {channel.icon || channel.name.charAt(0).toUpperCase()}
+            {isS3Icon(channel.icon) ? (
+              <img
+                src={getIconUrl(channel.icon!)}
+                alt={channel.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              channel.icon || channel.name.charAt(0).toUpperCase()
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-sm truncate">{channel.name}</h3>
@@ -391,24 +473,45 @@ function ServerMiddlePanel({
             </span>
           </div>
         </div>
-        <div className="flex gap-1 mt-2">
+        <div className="flex items-center gap-1 mt-2">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            className="h-7 text-xs text-zinc-400 hover:text-white"
+            className="h-7 w-7 text-zinc-400 hover:text-white"
             onClick={() => setShowAddAgent(!showAddAgent)}
+            title="Add Agent"
           >
-            <UserPlus className="w-3.5 h-3.5 mr-1" />
-            Add Agent
+            <Bot className="w-3.5 h-3.5" />
           </Button>
           <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-950/30"
-            onClick={handleDeleteServer}
+            size="icon"
+            variant={showTeamSidebar ? "secondary" : "ghost"}
+            className="h-7 w-7 text-zinc-400 hover:text-white"
+            onClick={onToggleTeam}
+            title="Team"
           >
-            <Trash2 className="w-3.5 h-3.5 mr-1" />
-            Delete
+            <Users className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant={currentView === "settings" ? "secondary" : "ghost"}
+            className="h-7 w-7 text-zinc-400 hover:text-white"
+            onClick={() =>
+              onSetView(currentView === "settings" ? null : "settings")
+            }
+            title="Server Settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </Button>
+          <div className="flex-1" />
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/30"
+            onClick={handleDeleteServer}
+            title="Delete Server"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
@@ -526,12 +629,16 @@ function ServerMiddlePanel({
         </Link>
       </div>
 
-      <AlertDialog open={showDeleteServerDialog} onOpenChange={setShowDeleteServerDialog}>
+      <AlertDialog
+        open={showDeleteServerDialog}
+        onOpenChange={setShowDeleteServerDialog}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete server?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete server &quot;{channel.name}&quot;? This removes all agent assignments and chat history.
+              Delete server &quot;{channel.name}&quot;? This removes all agent
+              assignments and chat history.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -546,7 +653,10 @@ function ServerMiddlePanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={Boolean(removeAgentId)} onOpenChange={(open) => !open && setRemoveAgentId(null)}>
+      <AlertDialog
+        open={Boolean(removeAgentId)}
+        onOpenChange={(open) => !open && setRemoveAgentId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove agent?</AlertDialogTitle>
@@ -783,9 +893,7 @@ function ChannelChatPanel({
                           const text = String(children).replace(/\n$/, "");
                           if (match) {
                             return (
-                              <CodeBlock language={match[1]}>
-                                {text}
-                              </CodeBlock>
+                              <CodeBlock language={match[1]}>{text}</CodeBlock>
                             );
                           }
                           return (
@@ -798,6 +906,7 @@ function ChannelChatPanel({
                     >
                       {msg.content}
                     </ReactMarkdown>
+                    {msg.document && <DocumentCard document={msg.document} />}
                   </div>
                 </div>
               )}
@@ -893,9 +1002,7 @@ function ChannelChatPanel({
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && !e.shiftKey && handleSend()
-            }
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder={`Message ${agent?.name || "agent"}...`}
             className="flex-1 bg-zinc-800 border-zinc-700 focus-visible:ring-indigo-500"
             disabled={isStreaming}
@@ -927,7 +1034,8 @@ function ChannelChatPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Clear messages?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove all messages with {agent?.name || "this agent"} in this server.
+              This will remove all messages with {agent?.name || "this agent"}{" "}
+              in this server.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -951,11 +1059,11 @@ const plans = [
   {
     tier: "starter",
     name: "Starter",
-    price: 9,
+    price: 19,
     description: "For individuals getting started with AI agents",
     features: [
       "Up to 3 servers",
-      "500 messages/month",
+      "1M tokens/month",
       "3 agents per server",
       "Web channel only",
       "Basic tools (web search, calculator)",
@@ -965,15 +1073,16 @@ const plans = [
   {
     tier: "pro",
     name: "Pro",
-    price: 29,
+    price: 49,
     popular: true,
     description: "For professionals and small teams",
     features: [
       "Up to 10 servers",
-      "5,000 messages/month",
+      "5M tokens/month",
       "10 agents per server",
       "Web + API channels",
       "All tools (Jira, Notion, Slack, GitHub, Calendar)",
+      "MCP server integrations",
       "Sub-agent delegation",
       "Knowledge base RAG",
       "Agent memory",
@@ -983,14 +1092,14 @@ const plans = [
   {
     tier: "enterprise",
     name: "Enterprise",
-    price: 99,
+    price: 149,
     description: "For teams and organizations at scale",
     features: [
       "Unlimited servers",
-      "Unlimited messages",
+      "20M tokens/month",
       "Unlimited agents per server",
       "All channels (Web, API, WhatsApp)",
-      "All tools + custom API calls",
+      "All tools + custom MCP servers",
       "Sub-agent orchestration",
       "Knowledge base RAG",
       "Advanced memory & context",
@@ -1053,10 +1162,7 @@ function SubscriptionPricing({
 
               <ul className="space-y-2.5 mb-6 flex-1">
                 {plan.features.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-start gap-2 text-sm"
-                  >
+                  <li key={feature} className="flex items-start gap-2 text-sm">
                     <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                     <span>{feature}</span>
                   </li>

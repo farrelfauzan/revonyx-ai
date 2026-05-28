@@ -2,7 +2,7 @@
 
 ## Summary
 
-Adds automatic memory extraction and personalization to Revonix AI. The system learns user interests, preferences, and context from conversations and uses them to personalize future responses — making the AI feel familiar and contextually aware across sessions.
+Adds automatic memory extraction and personalization to Renovix AI. The system learns user interests, preferences, and context from conversations and uses them to personalize future responses — making the AI feel familiar and contextually aware across sessions.
 
 ## Motivation
 

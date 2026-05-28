@@ -1,60 +1,87 @@
 # PR Description
 
 ## Summary
-This PR adds end-to-end document generation (PDF/DOCX/XLSX) in the API and improves chat UX/state handling in the chat app.
+This PR extends the AI Agents platform with MCP (Model Context Protocol) tools integration, an improved agent builder UI, landing page redesign, token usage tracking, channel chat memory/usage enhancements, and strategy documentation for guardrails and notifications.
 
 ## What Changed
 
-### 1. Dependency Updates
-- Added backend document/export dependencies and related lockfile updates.
-- Added chat-side dependency support for the new API client UX stack.
+### 1. Landing Page Redesign
+- Revamped hero section with updated messaging and layout
+- Added new sections: agent showcase, comparison, AI models, pricing, testimonials, use cases, CTA
+- Updated navbar, footer, and services section styling
+- Updated next.config.js and layout metadata
 
-### 2. API: Document Generation + Persistence
-- Added `DocumentModule` with converters for:
-  - PDF (`pdfkit`)
-  - DOCX (`docx`)
-  - XLSX (`exceljs`)
-- Added export endpoint and document service orchestration.
-- Added S3 upload with content disposition + presigned URL generation.
-- Integrated document generation into chat and portal completion flows.
-- Added template-driven `output_format` support through prompt template tuning/classification.
-- Persisted assistant document metadata on messages (`document_format`, `document_filename`, `document_key`).
-- Rehydrated document URLs from storage when loading conversations.
+### 2. MCP Tools Integration
+- Added full MCP module (client, registry, OAuth, controllers) in API
+- MCP server management API with CRUD and connect/disconnect lifecycle
+- OAuth credential management for workspace integrations (Google, etc.)
+- Refactored `agent-tool.service` to dynamically load MCP tool schemas
+- Added `@modelcontextprotocol/sdk` dependency
+- Frontend: MCP connect dialog, integrations panel, `use-mcp` hook, MCP types
+- Updated integrations tab with MCP server management UI
+- Added workspace integrations settings panel
+- New env vars: `MCP_ENCRYPTION_KEY`, `API_PUBLIC_URL`, `CHAT_APP_URL`
+- Database: `mcp_servers`, `agent_mcp_servers`, `workspace_oauth_credentials` tables
 
-### 3. Database + Seed
-- Prisma schema updates for prompt-template output format and message document metadata.
-- Added migrations:
-  - `20260510145443_add_output_format_to_prompt_templates`
-  - `20260512163000_add_document_fields_to_messages`
-- Updated seed with document generation templates and keywords.
+### 3. Agent Builder & Service Improvements
+- Enhanced `agent-memory.service` with workspace memory context injection
+- Improved `agent-run.service` with extended tool iterations and memory policy
+- Added new agent management endpoints
+- Multi-step agent builder wizard UI (identity → instructions → tools → review)
+- Refactored agent listing page with improved actions
+- Simplified new-agent-page with builder wizard flow
+- Added agent settings panel and workspace settings components
+- Added sonner toast notifications
 
-### 4. Chat App UX + State Fixes
-- Added shared API client and config usage in portal hooks/pages.
-- Added document card rendering in assistant bubbles.
-- Added streaming status support for document generation.
-- Improved streaming state handling when switching conversations:
-  - Keep stream tied to origin conversation.
-  - Prevent cross-chat commit of streamed output.
-  - Preserve local conversation bubbles while streaming.
-- Fixed active-chat deletion behavior:
-  - Deleting the currently open conversation now clears to new chat state immediately.
-  - Updated delete flow to `mutateAsync`.
+### 4. Channel Chat Enhancements
+- Workspace memory context injection in channel chat
+- Memory policy instruction for persistent task recall
+- MCP tool schema integration in channel chat tool building
+- Usage tracking (token counting) per channel chat response
+- Increased `MAX_TOOL_ITERATIONS` from 6 to 30
+- Refactored portal controller to simplify session management
 
-## Commits
-1. `chore(deps): add document export and chat client dependencies`
-2. `feat(api): add document generation, storage, and persistence flow`
-3. `feat(chat): improve portal UX for documents, streaming, and auth api client`
+### 5. Database Schema Updates
+- Added `tokensUsed` (BigInt) field to `AgentSubscription`
+- Added `McpServer` model for MCP server configuration
+- Added `AgentMcpServer` junction model
+- Added `WorkspaceOAuthCredential` model
+- Migration: `20260524100000_add_tokens_used_to_subscriptions`
 
-## Testing
-- Built chat app successfully:
-  - `bunx nx build chat --skip-nx-cache`
-- Verified TypeScript diagnostics on modified files during implementation.
+### 6. Misc Fixes & Improvements
+- Fixed xlsx converter for better spreadsheet handling
+- Updated together.adapter with improved model routing
+- Updated chat-sidebar navigation and styling
+- Fixed kb-upload-dialog interaction issues
+- Improved server-team-sidebar workspace display
+- Added API public URL config to chat lib
+
+### 7. Strategy Documentation
+- Added `AGENT_GUARDRAILS_STRATEGY.md` for agent safety constraints
+- Added `AGENT_NOTIFICATION_REMINDER_STRATEGY.md` for scheduled notifications
+## Commit Breakdown
+1. `feat(landing): redesign landing page with new sections`
+2. `feat(mcp): add MCP tools integration with OAuth support`
+3. `feat(agent): improve agent builder UI and backend services`
+4. `feat(channel): integrate memory, MCP tools, and usage tracking in channel chat`
+5. `feat(db): add token usage tracking and MCP schema models`
+6. `fix(api,chat): misc improvements and bug fixes`
+7. `docs: add agent guardrails and notification/reminder strategies`
 
 ## Migration / Deployment Notes
-1. Run Prisma migrations before deploy.
-2. Ensure S3 env/config is set for document storage and presigned URL generation.
-3. Re-run seed if document prompt templates are required in target environment.
+1. Run Prisma migrations before deploying (`20260522143721_add_mcp_servers`, `20260523092916_add_workspace_oauth_credentials`, `20260524100000_add_tokens_used_to_subscriptions`).
+2. Set new environment variables: `MCP_ENCRYPTION_KEY`, `API_PUBLIC_URL`, `CHAT_APP_URL`.
+3. Install new dependency: `@modelcontextprotocol/sdk`.
+3. Run or include `seed-agents.ts` where agent bootstrap data is required.
+
+## Testing Notes
+- This PR is large and spans schema, API, and frontend surfaces.
+- Recommended verification before merge:
+  1. API smoke test for agent CRUD and agent-run chat endpoints.
+  2. Channel creation + chat room/message flow checks.
+  3. Frontend navigation through agents list, create, detail, and chat pages.
+  4. Tool-calling regression test on Together-backed models.
 
 ## Risk Notes
-- Main risk area is conversation state synchronization under fast tab/history switching; logic now guards stream ownership and prevents stale overwrite.
-- Document generation quality depends on model output quality and prompt template coverage.
+- High change breadth across persistence, backend services, and UI means integration regressions are possible if migrations or seeds are skipped.
+- Channel webhook/integration paths should be validated in an environment with real credentials/webhook callbacks.
