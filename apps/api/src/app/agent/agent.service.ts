@@ -526,7 +526,16 @@ export class AgentService {
     const subscription = await this.prisma.agentSubscription.findUnique({
       where: { userId },
     });
-    return { subscription: subscription || null };
+    if (!subscription) {
+      return { subscription: null };
+    }
+
+    return {
+      subscription: {
+        ...subscription,
+        tokensUsed: subscription.tokensUsed.toString(),
+      },
+    };
   }
 
   async subscribe(userId: string, tier: string) {
@@ -556,7 +565,12 @@ export class AgentService {
           tokensUsed: 0,
         },
       });
-      return { subscription: updated };
+      return {
+        subscription: {
+          ...updated,
+          tokensUsed: updated.tokensUsed.toString(),
+        },
+      };
     }
 
     // Create new subscription
@@ -570,7 +584,12 @@ export class AgentService {
       },
     });
 
-    return { subscription };
+    return {
+      subscription: {
+        ...subscription,
+        tokensUsed: subscription.tokensUsed.toString(),
+      },
+    };
   }
 
   // ─── Prompt Generation ───

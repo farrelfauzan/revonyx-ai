@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { McpClientService } from "../mcp/mcp-client.service";
 import { McpService } from "../mcp/mcp.service";
+import { McpUserService } from "../mcp/mcp-user.service";
 import { AgentMemoryService } from "./agent-memory.service";
 
 interface ToolSchema {
@@ -37,6 +38,7 @@ export class AgentToolService {
   constructor(
     private readonly mcpClient: McpClientService,
     private readonly mcpService: McpService,
+    private readonly mcpUserService: McpUserService,
     private readonly memoryService: AgentMemoryService,
   ) {}
 
@@ -190,58 +192,85 @@ export class AgentToolService {
   }
 
   /**
-   * Build tool schemas including MCP tools from connected servers.
-   * Connects to each MCP server, discovers tools, and merges them with built-in tools.
+   * Build tool schemas including MCP tools from user's connected providers.
+   * Connects to each provider using the executing user's credentials,
+   * discovers tools, and merges them with built-in tools.
    */
   async buildToolSchemasWithMcp(
     agentTools: any[],
     agentId: string,
+    executingUserId?: string,
+    workspaceId?: string,
     options?: { injectDelegation?: boolean },
   ): Promise<ToolSchema[]> {
     // 1. Built-in tools
     const schemas = this.buildToolSchemas(agentTools, options);
 
-    // 2. Discover MCP tools from connected servers
-    try {
-      const mcpConfigs = await this.mcpService.getAgentMcpConfigs(agentId);
+    // 2. Discover MCP tools from user's connected providers
+    if (!executingUserId || !workspaceId) {
+      return schemas;
+    }
 
-      for (const { config, allowedTools } of mcpConfigs) {
+    try {
+      const userCredMap = await this.mcpUserService.getUserConnectedProviders(
+        executingUserId,
+        workspaceId,
+      );
+
+      for (const [provider, env] of userCredMap) {
         try {
+          const config = this.mcpService.buildConfigFromProvider(
+            provider,
+            env,
+            executingUserId,
+          );
+          if (!config) {
+            this.logger.debug(
+              `No registry entry for provider ${provider}, skipping`,
+            );
+            continue;
+          }
+
           await this.mcpClient.connectServer(config);
           const mcpTools = await this.mcpClient.listTools(config.id);
 
           for (const tool of mcpTools) {
-            // Only enforce explicit per-agent allow-list when configured
-            if (allowedTools && !allowedTools.includes(tool.name)) {
-              continue;
-            }
-
             const schema = this.mcpClient.mcpToolToOpenAI(tool);
-            // Trim top-level description
-            if (schema.function.description && schema.function.description.length > 120) {
-              schema.function.description = schema.function.description.slice(0, 120);
+            if (
+              schema.function.description &&
+              schema.function.description.length > 120
+            ) {
+              schema.function.description = schema.function.description.slice(
+                0,
+                120,
+              );
             }
-            // Remove nested parameter descriptions to reduce request payload size.
             this.stripSchemaDescriptions(schema.function.parameters);
             schemas.push(schema);
             this.mcpToolMap.set(tool.name, config.id);
           }
         } catch (err: any) {
           this.logger.warn(
-            `Failed to connect MCP server ${config.name}: ${err.message}`,
+            `Failed to connect MCP provider ${provider}: ${err.message}`,
           );
         }
       }
     } catch (err: any) {
       this.logger.warn(
-        `Failed to load MCP configs for agent ${agentId}: ${err.message}`,
+        `Failed to load MCP credentials for user ${executingUserId}: ${err.message}`,
       );
     }
 
     return schemas;
   }
 
-  async executeTool(toolName: string, args: any, agent: any, userId?: string, channelId?: string): Promise<string> {
+  async executeTool(
+    toolName: string,
+    args: any,
+    agent: any,
+    userId?: string,
+    channelId?: string,
+  ): Promise<string> {
     const timeout = 30000; // 30s timeout per tool
 
     const executeWithTimeout = async (): Promise<string> => {
@@ -366,7 +395,9 @@ export class AgentToolService {
     channelId?: string,
   ): Promise<string> {
     if (!userId) {
-      this.logger.warn(`[memory_store] No userId provided for agent ${agent.id}`);
+      this.logger.warn(
+        `[memory_store] No userId provided for agent ${agent.id}`,
+      );
       return `Memory store failed: user context unavailable.`;
     }
     try {

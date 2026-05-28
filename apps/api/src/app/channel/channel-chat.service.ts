@@ -7,6 +7,7 @@ import { ChannelService } from "./channel.service";
 import { AgentToolService } from "../agent/agent-tool.service";
 import { AgentMemoryService } from "../agent/agent-memory.service";
 import { UsageService } from "../usage/usage.service";
+import { GuardrailService } from "../guardrail/guardrail.service";
 
 const MAX_TOOL_ITERATIONS = 30;
 
@@ -22,6 +23,7 @@ export class ChannelChatService {
     private readonly toolService: AgentToolService,
     private readonly memoryService: AgentMemoryService,
     private readonly usage: UsageService,
+    private readonly guardrail: GuardrailService,
   ) {}
 
   async chat(
@@ -42,6 +44,32 @@ export class ChannelChatService {
       agentId,
     );
     const agent = channelAgent.agent;
+
+    // Input guardrail check — soft decline, returns a polite message
+    const inputCheck = await this.guardrail.checkInput(
+      message,
+      userId,
+      agentId,
+    );
+    if (inputCheck.blocked) {
+      const declineMessage =
+        inputCheck.userMessage || "I'm not able to help with that request.";
+      // Save both messages so the conversation history reflects the interaction
+      await this.channelService.saveMessage(channelAgent.id, userId, {
+        role: "user",
+        content: message,
+      });
+      const savedMsg = await this.channelService.saveMessage(
+        channelAgent.id,
+        userId,
+        { role: "assistant", content: declineMessage },
+      );
+      return {
+        content: declineMessage,
+        totalTokens: 0,
+        assistantMessageId: savedMsg.id,
+      };
+    }
 
     // Load sub-agents if this is a parent agent
     const subAgents =
@@ -127,6 +155,8 @@ export class ChannelChatService {
     const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
       agent.tools,
       agent.id,
+      userId,
+      agent.workspaceId || undefined,
       {
         injectDelegation: agent.agentType === "parent" && subAgents.length > 0,
       },
@@ -248,7 +278,17 @@ export class ChannelChatService {
       }
 
       // Final text response
-      const fullContent = accumulatedContent + (choice.message?.content || "");
+      const rawContent = accumulatedContent + (choice.message?.content || "");
+
+      // Output guardrail check
+      const outputCheck = await this.guardrail.checkOutput(
+        rawContent,
+        userId,
+        agentId,
+      );
+      const fullContent = outputCheck.blocked
+        ? outputCheck.sanitized || "I'm unable to provide that response."
+        : outputCheck.content || rawContent;
 
       // Save assistant message
       if (fullContent) {

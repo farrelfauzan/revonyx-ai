@@ -12,6 +12,7 @@ import { AgentToolService } from "./agent-tool.service";
 import { AgentMemoryService } from "./agent-memory.service";
 import { KnowledgeService } from "../knowledge/knowledge.service";
 import { UsageService } from "../usage/usage.service";
+import { GuardrailService } from "../guardrail/guardrail.service";
 import { Decimal } from "@prisma/client/runtime/client";
 
 const MAX_TOOL_ITERATIONS = 15;
@@ -57,6 +58,7 @@ export class AgentRunService {
     private readonly memoryService: AgentMemoryService,
     private readonly knowledge: KnowledgeService,
     private readonly usage: UsageService,
+    private readonly guardrail: GuardrailService,
   ) {}
 
   async chat(
@@ -76,7 +78,6 @@ export class AgentRunService {
         tools: { where: { enabled: true } },
         knowledgeBases: true,
         integrations: { where: { status: "connected" } },
-        mcpServers: { include: { mcpServer: true } },
         subAgents: {
           where: { status: "active" },
           select: {
@@ -92,6 +93,30 @@ export class AgentRunService {
 
     if (!agent) {
       throw new NotFoundException("Agent not found");
+    }
+
+    // Input guardrail check — soft decline, never blocks the user
+    const inputCheck = await this.guardrail.checkInput(
+      message,
+      userId,
+      agentId,
+    );
+    if (inputCheck.blocked) {
+      const run = await this.getOrCreateRun(agentId, sessionId);
+      await this.prisma.agentMessage.create({
+        data: { runId: run.id, role: "user", content: message },
+      });
+      const declineMessage =
+        inputCheck.userMessage || "I'm not able to help with that request.";
+      await this.prisma.agentMessage.create({
+        data: { runId: run.id, role: "assistant", content: declineMessage },
+      });
+      return {
+        runId: run.id,
+        sessionId: run.sessionId,
+        message: { role: "assistant", content: declineMessage },
+        usage: { totalTokens: 0, cost: "0" },
+      };
     }
 
     // Subscription check
@@ -142,6 +167,8 @@ export class AgentRunService {
     const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
       agent.tools,
       agentId,
+      userId,
+      agent.workspaceId || undefined,
       {
         injectDelegation:
           agent.agentType === "parent" && agent.subAgents?.length > 0,
@@ -205,12 +232,22 @@ export class AgentRunService {
         this.logger.error(`Memory extraction failed: ${err.message}`),
       );
 
+    // Output guardrail check
+    const outputCheck = await this.guardrail.checkOutput(
+      result.content,
+      userId,
+      agentId,
+    );
+    const finalContent = outputCheck.blocked
+      ? outputCheck.sanitized || "I'm unable to provide that response."
+      : outputCheck.content || result.content;
+
     return {
       runId: run.id,
       sessionId: run.sessionId,
       message: {
         role: "assistant",
-        content: result.content,
+        content: finalContent,
       },
       usage: {
         totalTokens: result.totalTokens,
@@ -242,7 +279,6 @@ export class AgentRunService {
         tools: { where: { enabled: true } },
         knowledgeBases: true,
         integrations: { where: { status: "connected" } },
-        mcpServers: { include: { mcpServer: true } },
         subAgents: {
           where: { status: "active" },
           select: {
@@ -260,6 +296,33 @@ export class AgentRunService {
 
     if (!agent) {
       throw new NotFoundException("Agent not found");
+    }
+
+    // Input guardrail check — soft decline, never blocks the user
+    const inputCheck = await this.guardrail.checkInput(
+      message,
+      userId,
+      agentId,
+    );
+    if (inputCheck.blocked) {
+      const run = await this.getOrCreateRun(agentId, sessionId);
+      await this.prisma.agentMessage.create({
+        data: { runId: run.id, role: "user", content: message },
+      });
+      const declineMessage =
+        inputCheck.userMessage || "I'm not able to help with that request.";
+      await this.prisma.agentMessage.create({
+        data: { runId: run.id, role: "assistant", content: declineMessage },
+      });
+      // Return a minimal context that signals guardrail decline to the controller
+      return {
+        run,
+        context: null as any,
+        messages: [],
+        toolSchemas: [],
+        agent,
+        guardrailDecline: declineMessage,
+      } as any;
     }
 
     // Subscription check
@@ -317,6 +380,8 @@ export class AgentRunService {
     const toolSchemas = await this.toolService.buildToolSchemasWithMcp(
       agent.tools,
       agentId,
+      userId,
+      agent.workspaceId || undefined,
       {
         injectDelegation:
           agent.agentType === "parent" && agent.subAgents?.length > 0,
