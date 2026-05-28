@@ -28,7 +28,8 @@ model User {
   ownedWorkspaces    Workspace[]        @relation("WorkspaceOwner")
   workspaceMemberships WorkspaceMember[]
   workspaceInvitesSent WorkspaceInvite[] @relation("InviteSender")
-  mcpServers    McpServer[]
+  mcpCredentials UserMcpCredential[]
+  guardrailViolations GuardrailViolation[]
 
   @@map("users")
 }
@@ -249,10 +250,11 @@ model Agent {
   tools           AgentTool[]
   integrations    AgentIntegration[]
   knowledgeBases  AgentKnowledgeBase[]
-  mcpServers      AgentMcpServer[]
   channels        AgentChannel[]
   runs            AgentRun[]
   channelAgents   ChannelAgent[]
+  guardrailViolations GuardrailViolation[]
+  guardrailConfig     GuardrailConfig?
   createdAt       DateTime        @default(now()) @db.Timestamptz()
   updatedAt       DateTime        @updatedAt @db.Timestamptz()
 
@@ -456,7 +458,7 @@ model Workspace {
   memories    WorkspaceMemory[]
   knowledgeBases KnowledgeBase[]
   agents      Agent[]
-  oauthCredentials WorkspaceOAuthCredential[]
+  userMcpCredentials UserMcpCredential[]
   createdAt   DateTime          @default(now()) @db.Timestamptz()
   updatedAt   DateTime          @updatedAt @db.Timestamptz()
 
@@ -547,55 +549,62 @@ model EmailJob {
   @@map("email_jobs")
 }
 
-// ─── MCP Servers ────────────────────────────────────────────────────────────────
+// ─── User MCP Credentials ───────────────────────────────────────────────────────
 
-model McpServer {
-  id           String   @id @default(uuid())
-  name         String   // "google-gmail" | "google-calendar" | "github" | "slack" | etc.
-  displayName  String   @map("display_name")
-  transport    String   @default("stdio") // "stdio" | "sse"
-  command      String?  // e.g. "npx"
-  args         Json?    // e.g. ["-y", "@modelcontextprotocol/server-github"]
-  url          String?  // for SSE transport
-  envEncrypted Json?    @map("env_encrypted") // AES-256-GCM encrypted env vars
-  isGlobal     Boolean  @default(false) @map("is_global")
-  userId       String?  @map("user_id")
-  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status       String   @default("connected") // "connected" | "disconnected" | "error"
-  agents       AgentMcpServer[]
-  createdAt    DateTime @default(now()) @db.Timestamptz()
-  updatedAt    DateTime @updatedAt @db.Timestamptz()
-
-  @@index([userId])
-  @@index([isGlobal])
-  @@map("mcp_servers")
-}
-
-model AgentMcpServer {
-  id           String    @id @default(uuid())
-  agentId      String    @map("agent_id")
-  agent        Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  mcpServerId  String    @map("mcp_server_id")
-  mcpServer    McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
-  allowedTools Json?     @map("allowed_tools") // string[] of tool names, null = all
-  createdAt    DateTime  @default(now()) @db.Timestamptz()
-
-  @@unique([agentId, mcpServerId])
-  @@index([agentId])
-  @@index([mcpServerId])
-  @@map("agent_mcp_servers")
-}
-
-model WorkspaceOAuthCredential {
+model UserMcpCredential {
   id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceId     String    @map("workspace_id")
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  provider        String    // "google"
-  clientId        String    @map("client_id")
-  clientSecretEnc String    @map("client_secret_enc") // AES-256-GCM encrypted
+  provider        String    // "google-gmail" | "google-calendar" | "google-sheets" | "github" | "slack"
+  envEncrypted    String    @map("env_encrypted") // AES-256-GCM encrypted JSON with tokens
+  status          String    @default("connected") // "connected" | "expired" | "revoked"
+  connectedAt     DateTime  @default(now()) @map("connected_at") @db.Timestamptz()
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz()
   createdAt       DateTime  @default(now()) @db.Timestamptz()
   updatedAt       DateTime  @updatedAt @db.Timestamptz()
 
-  @@unique([workspaceId, provider])
-  @@map("workspace_oauth_credentials")
+  @@unique([userId, workspaceId, provider])
+  @@index([userId, workspaceId])
+  @@index([workspaceId, provider])
+  @@map("user_mcp_credentials")
+}
+
+// ─── Guardrail Models ───────────────────────────────────────────────────────────
+
+model GuardrailViolation {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  agentId   String?  @map("agent_id")
+  agent     Agent?   @relation(fields: [agentId], references: [id])
+  type      String   // "prompt_injection" | "content_policy" | "rate_abuse" | "pii_leak" | "toxic_output"
+  severity  String   // "low" | "medium" | "high" | "critical"
+  input     String?  // user input that triggered violation (truncated)
+  output    String?  // model output that was blocked (truncated)
+  action    String   // "warned" | "blocked" | "cooldown" | "suspended"
+  metadata  Json?
+  createdAt DateTime @default(now()) @db.Timestamptz()
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("guardrail_violations")
+}
+
+model GuardrailConfig {
+  id                   String   @id @default(uuid())
+  agentId              String?  @unique @map("agent_id")
+  agent                Agent?   @relation(fields: [agentId], references: [id])
+  enableInputFilter    Boolean  @default(true) @map("enable_input_filter")
+  enableOutputFilter   Boolean  @default(true) @map("enable_output_filter")
+  enablePIIMasking     Boolean  @default(false) @map("enable_pii_masking")
+  enableInjectionCheck Boolean  @default(true) @map("enable_injection_check")
+  toxicityThreshold    Float    @default(0.7) @map("toxicity_threshold")
+  maxResponseLength    Int      @default(16000) @map("max_response_length")
+  blockedTopics        String[] @default([]) @map("blocked_topics")
+  createdAt            DateTime @default(now()) @db.Timestamptz()
+  updatedAt            DateTime @updatedAt @db.Timestamptz()
+
+  @@map("guardrail_configs")
 }
