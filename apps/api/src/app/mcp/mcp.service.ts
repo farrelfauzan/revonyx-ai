@@ -1,19 +1,7 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { McpClientService, McpServerConfig } from "./mcp-client.service";
 import { McpRegistryService } from "./mcp-registry.service";
-import { Prisma } from "@generated/prisma/client.js";
-import {
-  CreateMcpServerDto,
-  AttachMcpServerDto,
-  UpdateAgentMcpToolsDto,
-} from "./dto/mcp.dto";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "crypto";
 
@@ -38,92 +26,71 @@ export class McpService {
     return this.registry.getAllPackages();
   }
 
+  /**
+   * List user's connected MCP integrations (from user_mcp_credentials).
+   */
   async listServers(userId: string) {
-    return this.prisma.mcpServer.findMany({
-      where: {
-        OR: [{ userId }, { isGlobal: true }],
-      },
+    const credentials = await this.prisma.userMcpCredential.findMany({
+      where: { userId },
       select: {
         id: true,
-        name: true,
-        displayName: true,
-        transport: true,
+        provider: true,
         status: true,
-        isGlobal: true,
-        createdAt: true,
+        connectedAt: true,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { connectedAt: "desc" },
+    });
+
+    const allPackages = this.registry.getAllPackages();
+
+    return credentials.map((cred) => {
+      const pkg = allPackages[cred.provider];
+      return {
+        id: cred.id,
+        name: cred.provider,
+        displayName: pkg?.displayName || cred.provider,
+        transport: "stdio",
+        status: cred.status,
+        isGlobal: false,
+        createdAt: cred.connectedAt,
+      };
     });
   }
 
-  async createServer(userId: string, dto: CreateMcpServerDto) {
-    // MCP connections created from user APIs must always be user-owned.
-    // Keep globals reserved for system seeding/admin flows.
-    if (!userId) {
-      throw new UnauthorizedException("Authentication required");
-    }
-
-    const packageInfo = this.registry.getPackageInfo(dto.name);
-
-    // Use registry info if available, otherwise use raw DTO values
-    const command = dto.command || "npx";
-    const args = dto.args || (packageInfo ? ["-y", packageInfo.package] : []);
-    const displayName = dto.displayName || packageInfo?.displayName || dto.name;
-
-    // Encrypt env vars
-    const envEncrypted = dto.env ? this.encryptJson(dto.env) : Prisma.DbNull;
-
-    const server = await this.prisma.mcpServer.create({
-      data: {
-        name: dto.name,
-        displayName,
-        transport: dto.transport || "stdio",
-        command,
-        args,
-        url: dto.url,
-        envEncrypted,
-        userId,
-        status: "connected",
-      },
+  /**
+   * Test connection to an MCP provider using user's stored credentials.
+   */
+  async testConnection(userId: string, credentialId: string) {
+    const cred = await this.prisma.userMcpCredential.findFirst({
+      where: { id: credentialId, userId },
     });
 
-    return {
-      id: server.id,
-      name: server.name,
-      displayName: server.displayName,
-      transport: server.transport,
-      status: server.status,
+    if (!cred) {
+      throw new NotFoundException("MCP credential not found");
+    }
+
+    const pkg = this.registry.getPackageInfo(cred.provider);
+    if (!pkg) {
+      return { status: "error", error: `Unknown provider: ${cred.provider}` };
+    }
+
+    const env = this.decryptJson(cred.envEncrypted);
+    const config: McpServerConfig = {
+      id: `test-${cred.id}`,
+      name: cred.provider,
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", pkg.package],
+      env,
     };
-  }
-
-  async listServerTools(userId: string, serverId: string) {
-    const server = await this.getServerForUser(userId, serverId);
-    const config = this.buildConfig(server);
-
-    try {
-      await this.mcpClient.connectServer(config);
-      const tools = await this.mcpClient.listTools(config.id);
-      await this.mcpClient.disconnectServer(config.id);
-      return { tools };
-    } catch (err: any) {
-      this.logger.error(
-        `Failed to list tools for ${server.name}: ${err.message}`,
-      );
-      throw new Error(`Failed to connect to MCP server: ${err.message}`);
-    }
-  }
-
-  async testConnection(userId: string, serverId: string) {
-    const server = await this.getServerForUser(userId, serverId);
-    const config = this.buildConfig(server);
 
     try {
       await this.mcpClient.connectServer(config);
       const tools = await this.mcpClient.listTools(config.id);
       await this.mcpClient.disconnectServer(config.id);
 
-      await this.prisma.mcpServer.update({
-        where: { id: serverId },
+      await this.prisma.userMcpCredential.update({
+        where: { id: cred.id },
         data: { status: "connected" },
       });
 
@@ -133,164 +100,57 @@ export class McpService {
         tools: tools.map((t) => t.name),
       };
     } catch (err: any) {
-      await this.prisma.mcpServer.update({
-        where: { id: serverId },
-        data: { status: "error" },
+      await this.prisma.userMcpCredential.update({
+        where: { id: cred.id },
+        data: { status: "expired" },
       });
       return { status: "error", error: err.message };
     }
   }
 
-  async deleteServer(userId: string, serverId: string) {
-    const server = await this.getServerForUser(userId, serverId);
-    if (server.isGlobal) {
-      throw new ForbiddenException("Cannot delete global MCP servers");
+  /**
+   * Disconnect (delete) a user's MCP credential by ID.
+   */
+  async deleteServer(userId: string, credentialId: string) {
+    const cred = await this.prisma.userMcpCredential.findFirst({
+      where: { id: credentialId, userId },
+    });
+
+    if (!cred) {
+      throw new NotFoundException("MCP credential not found");
     }
 
-    await this.mcpClient.disconnectServer(serverId);
-    await this.prisma.mcpServer.delete({ where: { id: serverId } });
+    await this.prisma.userMcpCredential.delete({ where: { id: cred.id } });
     return { deleted: true };
   }
 
-  async attachToAgent(
-    userId: string,
-    agentId: string,
-    dto: AttachMcpServerDto,
-  ) {
-    // Verify agent ownership
-    const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, userId },
-    });
-    if (!agent) throw new NotFoundException("Agent not found");
-
-    // Verify server access
-    await this.getServerForUser(userId, dto.mcpServerId);
-
-    return this.prisma.agentMcpServer.create({
-      data: {
-        agentId,
-        mcpServerId: dto.mcpServerId,
-        allowedTools: dto.allowedTools ?? Prisma.DbNull,
-      },
-      include: {
-        mcpServer: {
-          select: { id: true, name: true, displayName: true, status: true },
-        },
-      },
-    });
-  }
-
-  async listAgentMcpServers(userId: string, agentId: string) {
-    const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, OR: [{ userId }, { isPublic: true }] },
-    });
-    if (!agent) throw new NotFoundException("Agent not found");
-
-    return this.prisma.agentMcpServer.findMany({
-      where: { agentId },
-      include: {
-        mcpServer: {
-          select: {
-            id: true,
-            name: true,
-            displayName: true,
-            transport: true,
-            status: true,
-          },
-        },
-      },
-    });
-  }
-
-  async updateAgentMcpTools(
-    userId: string,
-    agentId: string,
-    serverId: string,
-    dto: UpdateAgentMcpToolsDto,
-  ) {
-    const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, userId },
-    });
-    if (!agent) throw new NotFoundException("Agent not found");
-
-    return this.prisma.agentMcpServer.updateMany({
-      where: { agentId, mcpServerId: serverId },
-      data: { allowedTools: dto.allowedTools ?? Prisma.DbNull },
-    });
-  }
-
-  async detachFromAgent(userId: string, agentId: string, serverId: string) {
-    const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, userId },
-    });
-    if (!agent) throw new NotFoundException("Agent not found");
-
-    await this.prisma.agentMcpServer.deleteMany({
-      where: { agentId, mcpServerId: serverId },
-    });
-    return { detached: true };
-  }
-
   /**
-   * Get MCP server configs for an agent (used by AgentToolService during execution)
+   * Build an MCP server config from a provider name + user credentials.
+   * Used by AgentToolService at runtime.
    */
-  async getAgentMcpConfigs(
-    agentId: string,
-  ): Promise<
-    Array<{ config: McpServerConfig; allowedTools: string[] | null }>
-  > {
-    const agentServers = await this.prisma.agentMcpServer.findMany({
-      where: { agentId },
-      include: { mcpServer: true },
-    });
-
-    return agentServers.map((as) => ({
-      config: this.buildConfig(as.mcpServer),
-      allowedTools: as.allowedTools as string[] | null,
-    }));
-  }
-
-  // ─── Helpers ───
-
-  private async getServerForUser(userId: string, serverId: string) {
-    const server = await this.prisma.mcpServer.findFirst({
-      where: {
-        id: serverId,
-        OR: [{ userId }, { isGlobal: true }],
-      },
-    });
-    if (!server) throw new NotFoundException("MCP server not found");
-    return server;
-  }
-
-  buildConfig(server: any): McpServerConfig {
-    const env = server.envEncrypted
-      ? this.decryptJson(server.envEncrypted)
-      : {};
+  buildConfigFromProvider(
+    provider: string,
+    env: Record<string, string>,
+    userId: string,
+  ): McpServerConfig | null {
+    const pkg = this.registry.getPackageInfo(provider);
+    if (!pkg) return null;
 
     return {
-      id: server.id,
-      name: server.name,
-      transport: server.transport as "stdio" | "sse",
-      command: server.command || undefined,
-      args: (server.args as string[]) || undefined,
-      url: server.url || undefined,
+      id: `${provider}-${userId}`,
+      name: provider,
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", pkg.package],
       env,
     };
   }
 
-  private encryptJson(data: Record<string, string>): string {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv("aes-256-gcm", this.encryptionKey, iv);
-    let encrypted = cipher.update(JSON.stringify(data), "utf8", "hex");
-    encrypted += cipher.final("hex");
-    const tag = cipher.getAuthTag();
-    return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted}`;
-  }
+  // ─── Helpers ───
 
-  private decryptJson(encrypted: any): Record<string, string> {
+  private decryptJson(encrypted: string): Record<string, string> {
     try {
-      const parts = (encrypted as string).split(":");
+      const parts = encrypted.split(":");
       if (parts.length !== 3) return {};
       const [ivHex, tagHex, data] = parts;
       const iv = Buffer.from(ivHex, "hex");
