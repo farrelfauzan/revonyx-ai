@@ -1,34 +1,13 @@
 # AI Agent Channel Guardrails Strategy
 
-## Current State
+## Philosophy
 
-### What Exists
-
-| Layer | Mechanism | Status |
-|-------|-----------|--------|
-| Rate Limiting | 60 req/min global, 20 req/min agent chat, 20 req/day portal free tier | ✅ |
-| Input Validation | Zod schema, max 32K chars, min 1 char | ✅ |
-| Tool Timeout | 30s per tool execution via `Promise.race()` | ✅ |
-| Tool Iteration Limit | Max 15 tool loops per request | ✅ |
-| Sub-agent Timeout | 60s max per sub-agent call | ✅ |
-| Calculator Sanitization | Regex-based input filtering | ✅ |
-| Webhook Signature | HMAC-SHA256 with timing-safe comparison | ✅ |
-| Auth Guards | API key + JWT + Portal session validation | ✅ |
-| Credit Reservation | Atomic balance check before LLM call | ✅ |
-
-### What's Missing
-
-| Gap | Risk Level | Description |
-|-----|-----------|-------------|
-| Content Moderation | 🔴 High | No filtering of harmful, violent, sexual, or illegal AI outputs |
-| Prompt Injection Detection | 🔴 High | Users can manipulate agent system prompts via crafted inputs |
-| Jailbreak Prevention | 🔴 High | No defense against system prompt override attempts |
-| PII/Sensitive Data Leakage | 🟠 Medium | No detection/masking of personal data in responses |
-| Output Length Control | 🟠 Medium | No global max response length (only WhatsApp has 4K split) |
-| Per-User Rate Limiting | 🟠 Medium | Only global/endpoint limits, not per-user granularity |
-| Abuse Detection & Alerting | 🟠 Medium | No monitoring for repeated policy violations |
-| Tool Domain Allowlisting | 🟡 Low | MCP tools lack domain-level sandboxing beyond timeout |
-| Web Search Result Filtering | 🟡 Low | Placeholder implementation, no malicious content filtering |
+1. **Never ban or suspend users** — The guardrail only affects the current message
+2. **Allow profanity and angry language** — Users getting frustrated with AI is normal human behavior
+3. **Only guard against out-of-scope requests** — Illegal content, CSAM, self-harm instructions, prompt injection
+4. **Soft decline** — When triggered, the LLM returns a polite message saying it can't help with that specific request
+5. **Auto-configured backend** — No user-facing settings needed for MVP; future dashboard for analytics
+6. **Log for observability** — Violations are logged for future analytics, never for punishment
 
 ---
 
@@ -39,30 +18,25 @@ User Input
     │
     ▼
 ┌────────────────────────┐
-│  1. Rate Limit Guard   │ ← per-user + per-endpoint
-└────────────────────────┘
-    │
-    ▼
-┌────────────────────────┐
-│  2. Input Guardrail    │ ← prompt injection detection + content policy
+│  1. Input Guardrail    │ ← prompt injection + illegal content detection
 │     Service            │
 └────────────────────────┘
-    │
+    │ (if blocked → return soft decline as assistant message)
     ▼
 ┌────────────────────────┐
-│  3. Agent Execution    │ ← system prompt hardening + tool sandboxing
+│  2. Agent Execution    │ ← normal LLM processing
 │     (LLM Loop)         │
 └────────────────────────┘
     │
     ▼
 ┌────────────────────────┐
-│  4. Output Guardrail   │ ← toxicity check + PII masking + length control
+│  3. Output Guardrail   │ ← PII masking + dangerous output check + length
 │     Service            │
 └────────────────────────┘
     │
     ▼
 ┌────────────────────────┐
-│  5. Audit Logger       │ ← violations logged, alerts triggered
+│  4. Violation Logger   │ ← logged for analytics only, NEVER bans users
 └────────────────────────┘
     │
     ▼
@@ -254,23 +228,20 @@ const USER_RATE_LIMITS = {
 
 **Implementation:** Redis-based sliding window counter keyed by `user:{userId}:agent_requests`.
 
-#### 4.2 Violation Tracking & Escalation
+#### 4.2 Violation Tracking (Analytics Only)
 
 ```typescript
 interface ViolationRecord {
   userId: string;
-  type: 'prompt_injection' | 'content_policy' | 'rate_abuse' | 'pii_leak';
+  type: 'prompt_injection' | 'content_policy' | 'pii_leak' | 'dangerous_output';
   input: string;
   timestamp: Date;
-  action: 'warned' | 'blocked' | 'suspended';
 }
 ```
 
-**Escalation ladder:**
-1. **1st violation**: Request blocked, warning logged
-2. **3rd violation (24h)**: Temporary 1-hour cooldown
-3. **5th violation (24h)**: Account flagged for manual review
-4. **10th violation (7d)**: Automatic suspension + admin notification
+**No escalation — violations are logged for future dashboard analytics only.**
+Users are never banned, suspended, or rate-limited based on guardrail violations.
+The only action is: the current message gets a soft decline response.
 
 ---
 
@@ -445,31 +416,36 @@ apps/api/src/app/guardrail/
 
 ---
 
-## Integration Points
+## Integration Points (Implemented)
 
-1. **AgentRunService.chat()** — wrap LLM call with input/output guardrails
-2. **ChannelChatService.chat()** — same guardrails for channel messages
-3. **AgentToolService.executeTool()** — tool-specific guardrails
-4. **Portal chat endpoint** — apply guardrails with stricter free-tier config
+1. **AgentRunService.chat()** — input guardrail before LLM, output guardrail before returning ✅
+2. **AgentRunService.chatStream()** — input guardrail before streaming setup ✅
+3. **ChannelChatService.chat()** — same guardrails for channel messages ✅
+4. **PortalController (free + paid)** — input guardrail on last user message ✅
 
 ```typescript
-// In agent-run.service.ts
-async chat(dto: AgentChatDto, user: User) {
-  // Phase 1: Input guardrail
-  const inputCheck = await this.guardrailService.checkInput(dto.message, user);
+// In agent-run.service.ts — soft decline pattern (no ForbiddenException)
+async chat(userId, agentId, message, sessionId) {
+  const inputCheck = await this.guardrail.checkInput(message, userId, agentId);
   if (inputCheck.blocked) {
-    throw new ForbiddenException(inputCheck.userMessage);
+    // Return the decline as the assistant's response — user is NOT blocked
+    const run = await this.getOrCreateRun(agentId, sessionId);
+    return {
+      runId: run.id,
+      message: { role: "assistant", content: inputCheck.userMessage },
+      usage: { totalTokens: 0, cost: "0" },
+    };
   }
 
-  // ... existing agent execution logic ...
-  const response = await this.executeLLMLoop(...);
+  // ... normal LLM execution ...
+  const result = await this.executeLLMLoop(...);
 
-  // Phase 2: Output guardrail
-  const outputCheck = await this.guardrailService.checkOutput(response, user);
-  if (outputCheck.blocked) {
-    return outputCheck.sanitized; // Return safe alternative
-  }
+  // Output guardrail — replaces dangerous content, masks PII
+  const outputCheck = await this.guardrail.checkOutput(result.content, userId);
+  const finalContent = outputCheck.blocked
+    ? outputCheck.sanitized
+    : outputCheck.content || result.content;
 
-  return response;
+  return { message: { role: "assistant", content: finalContent } };
 }
 ```
