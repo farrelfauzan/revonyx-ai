@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   useChannels,
   useChannel,
-  useCreateChannel,
   useDeleteChannel,
   useAddChannelAgent,
   useRemoveChannelAgent,
@@ -13,12 +12,15 @@ import {
   useClearMessages,
 } from "@/hooks/use-channels";
 import { useChannelChat } from "@/hooks/use-channel-chat";
-import { useAgents, useAgentSubscription, useSubscribe } from "@/hooks/use-agents";
+import {
+  useAgents,
+  useAgentSubscription,
+  useSubscribe,
+} from "@/hooks/use-agents";
 import { useAuthStore, useHydrated } from "@/lib/stores";
 import Link from "next/link";
 import {
   Bot,
-  Plus,
   Check,
   MessageSquare,
   Trash2,
@@ -69,7 +71,14 @@ import { config } from "@/lib/config";
 
 function isS3Icon(icon: string | null | undefined): boolean {
   if (!icon) return false;
-  return icon.includes("/") || icon.endsWith(".png") || icon.endsWith(".jpg") || icon.endsWith(".jpeg") || icon.endsWith(".webp") || icon.endsWith(".gif");
+  return (
+    icon.includes("/") ||
+    icon.endsWith(".png") ||
+    icon.endsWith(".jpg") ||
+    icon.endsWith(".jpeg") ||
+    icon.endsWith(".webp") ||
+    icon.endsWith(".gif")
+  );
 }
 
 function getIconUrl(icon: string): string {
@@ -81,7 +90,8 @@ export default function AgentsPageClient() {
   const hydrated = useHydrated();
   const { isLoggedIn } = useAuthStore();
   const { data: channels, isLoading: channelsLoading } = useChannels();
-  const { data: subscriptionData, isLoading: subLoading } = useAgentSubscription();
+  const { data: subscriptionData, isLoading: subLoading } =
+    useAgentSubscription();
   const subscribeMutation = useSubscribe();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -89,6 +99,8 @@ export default function AgentsPageClient() {
   const selectedServerId = searchParams.get("server");
   const selectedAgentId = searchParams.get("agent");
   const currentView = searchParams.get("view"); // "settings" or null
+  const effectiveSettingsServerId =
+    selectedServerId || channels?.[0]?.id || null;
   const [showTeamSidebar, setShowTeamSidebar] = useState(false);
 
   const setSelectedServerId = useCallback(
@@ -148,7 +160,8 @@ export default function AgentsPageClient() {
         <Lock className="h-12 w-12 text-muted-foreground mb-4" />
         <h1 className="text-2xl font-bold mb-2">AI Agents</h1>
         <p className="text-muted-foreground text-center max-w-md">
-          Create servers with AI agents that automate your workflow. Sign in to get started.
+          Create servers with AI agents that automate your workflow. Sign in to
+          get started.
         </p>
         <Link href="/login">
           <Button className="mt-4">Sign In</Button>
@@ -176,7 +189,7 @@ export default function AgentsPageClient() {
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Left: Servers (projects) */}
-      <div className="w-[72px] shrink-0 bg-zinc-900 flex flex-col items-center py-3 gap-2 border-r border-zinc-800 overflow-y-auto">
+      <div className="w-18 shrink-0 bg-zinc-900 flex flex-col items-center py-3 gap-2 border-r border-zinc-800 overflow-y-auto">
         <Link href="/">
           <button
             className="w-12 h-12 rounded-2xl flex items-center justify-center bg-zinc-700 text-zinc-300 hover:bg-indigo-600 hover:text-white hover:rounded-xl transition-all mb-2"
@@ -235,7 +248,11 @@ export default function AgentsPageClient() {
               title={channel.name}
             >
               {isS3Icon(channel.icon) ? (
-                <img src={getIconUrl(channel.icon!)} alt={channel.name} className="w-full h-full object-cover rounded-2xl" />
+                <img
+                  src={getIconUrl(channel.icon!)}
+                  alt={channel.name}
+                  className="w-full h-full object-cover rounded-2xl"
+                />
               ) : (
                 channel.icon || channel.name.charAt(0).toUpperCase()
               )}
@@ -277,14 +294,16 @@ export default function AgentsPageClient() {
       {/* Right: Chat with selected agent OR Server Settings OR Agent Settings */}
       <div className="flex-1 flex flex-col min-w-0">
         {currentView === "agent-settings" ? (
-          <AgentSettingsPanel />
+          <AgentSettingsPanel channelId={effectiveSettingsServerId} />
         ) : selectedServerId && currentView === "settings" ? (
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto p-6">
               <div className="flex items-center gap-3 mb-6">
                 <Settings className="h-5 w-5 text-zinc-400" />
                 <div>
-                  <h2 className="text-lg font-semibold text-zinc-100">Server Settings</h2>
+                  <h2 className="text-lg font-semibold text-zinc-100">
+                    Server Settings
+                  </h2>
                   <p className="text-xs text-zinc-500">
                     Manage your server settings, image, team, and integrations
                   </p>
@@ -424,7 +443,8 @@ function ServerMiddlePanel({
   };
 
   const removingAgentName =
-    channel.agents.find((link) => link.agentId === removeAgentId)?.agent.name || "this agent";
+    channel.agents.find((link) => link.agentId === removeAgentId)?.agent.name ||
+    "this agent";
 
   return (
     <>
@@ -436,7 +456,11 @@ function ServerMiddlePanel({
             style={{ backgroundColor: channel.color || "#6366f1" }}
           >
             {isS3Icon(channel.icon) ? (
-              <img src={getIconUrl(channel.icon!)} alt={channel.name} className="w-full h-full object-cover" />
+              <img
+                src={getIconUrl(channel.icon!)}
+                alt={channel.name}
+                className="w-full h-full object-cover"
+              />
             ) : (
               channel.icon || channel.name.charAt(0).toUpperCase()
             )}
@@ -472,7 +496,9 @@ function ServerMiddlePanel({
             size="icon"
             variant={currentView === "settings" ? "secondary" : "ghost"}
             className="h-7 w-7 text-zinc-400 hover:text-white"
-            onClick={() => onSetView(currentView === "settings" ? null : "settings")}
+            onClick={() =>
+              onSetView(currentView === "settings" ? null : "settings")
+            }
             title="Server Settings"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -603,12 +629,16 @@ function ServerMiddlePanel({
         </Link>
       </div>
 
-      <AlertDialog open={showDeleteServerDialog} onOpenChange={setShowDeleteServerDialog}>
+      <AlertDialog
+        open={showDeleteServerDialog}
+        onOpenChange={setShowDeleteServerDialog}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete server?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete server &quot;{channel.name}&quot;? This removes all agent assignments and chat history.
+              Delete server &quot;{channel.name}&quot;? This removes all agent
+              assignments and chat history.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -623,7 +653,10 @@ function ServerMiddlePanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={Boolean(removeAgentId)} onOpenChange={(open) => !open && setRemoveAgentId(null)}>
+      <AlertDialog
+        open={Boolean(removeAgentId)}
+        onOpenChange={(open) => !open && setRemoveAgentId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove agent?</AlertDialogTitle>
@@ -860,9 +893,7 @@ function ChannelChatPanel({
                           const text = String(children).replace(/\n$/, "");
                           if (match) {
                             return (
-                              <CodeBlock language={match[1]}>
-                                {text}
-                              </CodeBlock>
+                              <CodeBlock language={match[1]}>{text}</CodeBlock>
                             );
                           }
                           return (
@@ -971,9 +1002,7 @@ function ChannelChatPanel({
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && !e.shiftKey && handleSend()
-            }
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder={`Message ${agent?.name || "agent"}...`}
             className="flex-1 bg-zinc-800 border-zinc-700 focus-visible:ring-indigo-500"
             disabled={isStreaming}
@@ -1005,7 +1034,8 @@ function ChannelChatPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Clear messages?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove all messages with {agent?.name || "this agent"} in this server.
+              This will remove all messages with {agent?.name || "this agent"}{" "}
+              in this server.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1132,10 +1162,7 @@ function SubscriptionPricing({
 
               <ul className="space-y-2.5 mb-6 flex-1">
                 {plan.features.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-start gap-2 text-sm"
-                  >
+                  <li key={feature} className="flex items-start gap-2 text-sm">
                     <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                     <span>{feature}</span>
                   </li>

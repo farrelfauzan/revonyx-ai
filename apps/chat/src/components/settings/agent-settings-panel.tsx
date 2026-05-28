@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -9,8 +9,6 @@ import {
   CheckCircle2,
   XCircle,
   TestTube,
-  ChevronDown,
-  ChevronRight,
   Plug,
   Settings2,
 } from "lucide-react";
@@ -21,8 +19,11 @@ import {
   useMcpRegistry,
   useDeleteMcpServer,
   useTestMcpConnection,
-  useMcpServerTools,
 } from "@/hooks/use-mcp";
+import {
+  useChannelWorkspace,
+  useCreateChannelWorkspace,
+} from "@/hooks/use-workspaces";
 import { McpConnectDialog } from "@/components/integrations/mcp-connect-dialog";
 import { IntegrationProviderLogo } from "@/components/agents/agent-detail/integration-provider-logo";
 import type { McpRegistryEntry } from "@/lib/mcp-types";
@@ -39,46 +40,25 @@ const MCP_LOGOS: Record<string, string> = {
   "brave-search": "https://brave.com/static-assets/images/brave-logo-sans-text.svg",
 };
 
-function ServerToolsList({ serverId }: { serverId: string }) {
-  const { data: tools, isLoading } = useMcpServerTools(serverId);
-
-  if (isLoading) {
-    return (
-      <div className="pl-4 py-2">
-        <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
-      </div>
-    );
-  }
-
-  if (!tools || !Array.isArray(tools) || tools.length === 0) {
-    return (
-      <div className="pl-4 py-2 text-xs text-zinc-500">No tools available</div>
-    );
-  }
-
-  return (
-    <div className="pl-4 py-2 space-y-1">
-      {tools.map((tool) => (
-        <div key={tool.name} className="flex items-start gap-2 py-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-mono text-zinc-300">{tool.name}</p>
-            <p className="text-[11px] text-zinc-500 truncate">{tool.description}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function AgentSettingsPanel() {
-  const [expandedServer, setExpandedServer] = useState<string | null>(null);
+export function AgentSettingsPanel({ channelId }: { channelId: string | null }) {
   const [connectProvider, setConnectProvider] = useState<McpRegistryEntry | null>(null);
+  const didCreateWorkspaceRef = useRef(false);
 
   const { data: servers, isLoading: serversLoading } = useMcpServers();
   const { data: registry } = useMcpRegistry();
   const deleteMcp = useDeleteMcpServer();
   const testConn = useTestMcpConnection();
+  const { data: wsData } = useChannelWorkspace(channelId);
+  const createWorkspace = useCreateChannelWorkspace();
+  const workspaceId = wsData?.workspace?.id ?? null;
+
+  // Ensure a workspace exists for the selected server so OAuth integrations can connect.
+  useEffect(() => {
+    if (channelId && wsData && !wsData.exists && !didCreateWorkspaceRef.current) {
+      didCreateWorkspaceRef.current = true;
+      createWorkspace.mutate(channelId);
+    }
+  }, [channelId, wsData, createWorkspace]);
 
   const handleTest = async (serverId: string, name: string) => {
     try {
@@ -151,20 +131,6 @@ export function AgentSettingsPanel() {
                 >
                   <div className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-3">
-                      <button
-                        className="text-zinc-500 hover:text-zinc-300"
-                        onClick={() =>
-                          setExpandedServer(
-                            expandedServer === server.id ? null : server.id
-                          )
-                        }
-                      >
-                        {expandedServer === server.id ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </button>
                       <IntegrationProviderLogo
                         name={server.displayName}
                         logoUrl={MCP_LOGOS[server.name] || ""}
@@ -217,16 +183,6 @@ export function AgentSettingsPanel() {
                       </Button>
                     </div>
                   </div>
-
-                  {/* Expanded tools list */}
-                  {expandedServer === server.id && (
-                    <div className="border-t border-zinc-800 px-3 pb-3">
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 mt-2 mb-1 pl-4">
-                        Available Tools
-                      </p>
-                      <ServerToolsList serverId={server.id} />
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -240,8 +196,17 @@ export function AgentSettingsPanel() {
             <h3 className="text-sm font-medium text-zinc-200">Available Integrations</h3>
           </div>
           <p className="text-xs text-zinc-500 mb-3">
-            Connect a new MCP server. Once connected here, you can selectively attach it to agents.
+            Connect MCP servers here. OAuth providers (Google/GitHub/Slack)
+            use your per-user account for the selected server.
           </p>
+
+          {!channelId && (
+            <div className="border border-dashed border-zinc-700 rounded-lg p-3 mb-3">
+              <p className="text-xs text-zinc-500">
+                Select a server first to connect OAuth integrations.
+              </p>
+            </div>
+          )}
 
           {availableEntries.length === 0 ? (
             <div className="border border-dashed border-zinc-700 rounded-lg p-6 text-center">
@@ -289,9 +254,9 @@ export function AgentSettingsPanel() {
         {connectProvider && (
           <McpConnectDialog
             provider={connectProvider}
-            workspaceId={null}
+            workspaceId={workspaceId}
             open={!!connectProvider}
-            onOpenChange={(open) => !open && setConnectProvider(null)}
+            onOpenChangeAction={(open) => !open && setConnectProvider(null)}
           />
         )}
       </div>

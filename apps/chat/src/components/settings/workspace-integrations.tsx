@@ -22,6 +22,7 @@ import {
 import { McpConnectDialog } from "@/components/integrations/mcp-connect-dialog";
 import { useChannelWorkspace, useCreateChannelWorkspace } from "@/hooks/use-workspaces";
 import { IntegrationProviderLogo } from "@/components/agents/agent-detail/integration-provider-logo";
+import { UserMcpConnections } from "@/components/settings/user-mcp-connections";
 import type { McpRegistryEntry } from "@/lib/mcp-types";
 
 const MCP_LOGOS: Record<string, string> = {
@@ -98,13 +99,20 @@ export function WorkspaceIntegrations({ channelId }: { channelId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Connected MCP Servers */}
+      {/* Per-User Connections (OAuth via platform) */}
+      <section>
+        <UserMcpConnections workspaceId={workspaceId} />
+      </section>
+
+      <div className="border-t" />
+
+      {/* Connected MCP Servers (token-based / custom) */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-medium">Connected Services</h3>
+            <h3 className="text-sm font-medium">Custom MCP Servers</h3>
             <p className="text-xs text-muted-foreground">
-              MCP servers connected to your server. Agents can use these integrations.
+              Token-based MCP servers shared across the workspace. For personal OAuth services, use &quot;My Integrations&quot; above.
             </p>
           </div>
         </div>
@@ -178,19 +186,22 @@ export function WorkspaceIntegrations({ channelId }: { channelId: string }) {
         )}
       </section>
 
-      {/* Registry - Available to Connect (filtered out already connected) */}
+      {/* Registry - Available to Connect (only token-based, not OAuth providers) */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium">Available Integrations</h3>
             <p className="text-xs text-muted-foreground">
-              Connect a new MCP service to your server. Once connected, you can attach it to any agent.
+              Add a custom token-based MCP server. Once connected, you can attach it to any agent.
             </p>
           </div>
         </div>
         {(() => {
+          const oauthProviderNames = ["google-gmail", "google-calendar", "google-sheets", "github", "slack"];
           const availableEntries = (registry || []).filter(
-            (entry) => !servers?.some((s) => s.name === entry.name)
+            (entry) =>
+              !servers?.some((s) => s.name === entry.name) &&
+              !oauthProviderNames.includes(entry.name)
           );
           if (availableEntries.length === 0) {
             return (
@@ -242,7 +253,7 @@ export function WorkspaceIntegrations({ channelId }: { channelId: string }) {
           provider={connectProvider}
           workspaceId={workspaceId}
           open={!!connectProvider}
-          onOpenChange={(open) => !open && setConnectProvider(null)}
+          onOpenChangeAction={(open) => !open && setConnectProvider(null)}
         />
       )}
     </div>
